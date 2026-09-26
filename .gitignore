@@ -1,0 +1,11 @@
+.env
+.env.*
+!.env.example
+supabase/.branches
+supabase/.temp
+supabase/functions/.env
+node_modules/
+
+# Build outputs (share APKs via the EAS build links, not git)
+*.apk
+*.aab

@@ -1,0 +1,127 @@
+import { Ionicons } from "@expo/vector-icons";
+import { router, type Href } from "expo-router";
+import type { ComponentProps } from "react";
+import { Alert, Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { AppButton } from "@/components/ui/AppButton";
+import { AppText } from "@/components/ui/AppText";
+import { Avatar } from "@/components/ui/Avatar";
+import { useTopInset } from "@/components/ui/Screen";
+import { useUnsyncedCount } from "@/features/sync/hooks";
+import { useAuthStore } from "@/store/authStore";
+import { colors, fonts, radius, shadow } from "@/theme";
+
+const ROLE_LABEL = { field_surveyor: "Field Surveyor", supervisor: "Supervisor", admin: "Admin", user: "User" } as const;
+
+export default function ProfileScreen() {
+  const top = useTopInset();
+  const profile = useAuthStore((s) => s.profile);
+  const signOut = useAuthStore((s) => s.signOut);
+  const isAdmin = profile?.role === "admin";
+  const isGuest = !!profile?.is_guest;
+  const { pending, failed } = useUnsyncedCount();
+  const waiting = pending + failed;
+
+  const confirmLogout = () =>
+    Alert.alert(
+      "Log out?",
+      waiting
+        ? `${waiting} survey${waiting === 1 ? " is" : "s are"} not synced yet. They stay on this device and will sync the next time you sign in.`
+        : "You'll return to browsing surveys without an account.",
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: "Log out", style: "destructive", onPress: () => void signOut() },
+      ],
+    );
+
+  return (
+    <ScrollView style={{ flex: 1, backgroundColor: colors.background }} contentContainerStyle={{ paddingBottom: 32 }}>
+      <View style={[styles.hero, { paddingTop: top + 24 }]}>
+        <Avatar name={profile?.full_name} size={72} light />
+        <View style={{ flex: 1 }}>
+          <AppText style={styles.name} numberOfLines={2}>
+            {profile?.full_name ?? "—"}
+          </AppText>
+          <AppText style={styles.heroSub}>{isGuest ? "Browsing without an account" : profile ? ROLE_LABEL[profile.role] : ""}</AppText>
+          {profile?.mobile ? <AppText style={styles.heroSub}>{profile.mobile}</AppText> : null}
+        </View>
+      </View>
+
+      <View style={[styles.menu, shadow.card]}>
+        {!isGuest ? <MenuRow icon="person-outline" label="My Profile" href="/profile/details" /> : null}
+        {isAdmin ? <MenuRow icon="people-outline" label="Manage Admins" href="/profile/users" /> : null}
+        {isAdmin ? (
+          <MenuRow icon="cloud-upload-outline" label="Offline Data" href="/profile/offline" badge={waiting} badgeTone={failed ? "error" : "warning"} />
+        ) : null}
+        <MenuRow icon="settings-outline" label="Settings" href="/profile/settings" />
+        <MenuRow icon="help-circle-outline" label="Help & Support" href="/profile/help" />
+        <MenuRow icon="information-circle-outline" label="About App" href="/profile/about" last />
+      </View>
+
+      {isGuest ? (
+        <AppButton
+          title="Admin Login"
+          icon="shield-checkmark-outline"
+          onPress={() => router.push("/login")}
+          style={{ marginHorizontal: 16, marginTop: 20 }}
+          accessibilityHint="Admins sign in to add and manage surveys"
+        />
+      ) : (
+        <AppButton title="Logout" icon="log-out-outline" variant="dangerSoft" onPress={confirmLogout} style={{ marginHorizontal: 16, marginTop: 20 }} />
+      )}
+    </ScrollView>
+  );
+}
+
+function MenuRow({
+  icon,
+  label,
+  href,
+  badge,
+  badgeTone = "error",
+  last,
+}: {
+  icon: ComponentProps<typeof Ionicons>["name"];
+  label: string;
+  href: Href;
+  badge?: number;
+  badgeTone?: "error" | "warning";
+  last?: boolean;
+}) {
+  return (
+    <Pressable
+      onPress={() => router.push(href)}
+      accessibilityRole="button"
+      accessibilityLabel={badge ? `${label}, ${badge} pending` : label}
+      style={({ pressed }) => [styles.row, !last && styles.divider, pressed && { backgroundColor: "#F3F5F2" }]}
+    >
+      <Ionicons name={icon} size={22} color={colors.text} />
+      <AppText variant="body" style={{ flex: 1 }}>
+        {label}
+      </AppText>
+      {badge ? (
+        <View style={[styles.badge, { backgroundColor: badgeTone === "error" ? colors.error : colors.warning }]}>
+          <AppText style={styles.badgeText}>{badge}</AppText>
+        </View>
+      ) : null}
+      <Ionicons name="chevron-forward" size={18} color={colors.placeholder} />
+    </Pressable>
+  );
+}
+
+const styles = StyleSheet.create({
+  hero: {
+    backgroundColor: colors.primary,
+    paddingHorizontal: 20,
+    paddingBottom: 48,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 16,
+  },
+  name: { fontFamily: fonts.bold, fontSize: 22, color: colors.white },
+  heroSub: { fontFamily: fonts.medium, fontSize: 14, color: "#D8F0E1", marginTop: 2 },
+  menu: { backgroundColor: colors.card, borderRadius: radius.lg, marginHorizontal: 16, marginTop: -28, overflow: "hidden" },
+  row: { flexDirection: "row", alignItems: "center", gap: 14, paddingHorizontal: 16, minHeight: 58 },
+  divider: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
+  badge: { minWidth: 22, height: 22, borderRadius: 11, alignItems: "center", justifyContent: "center", paddingHorizontal: 6 },
+  badgeText: { color: colors.white, fontFamily: fonts.bold, fontSize: 12 },
+});
