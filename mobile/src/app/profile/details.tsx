@@ -5,7 +5,7 @@ import { Screen } from "@/components/ui/Screen";
 import { ScreenHeader } from "@/components/ui/ScreenHeader";
 import { useAuthStore } from "@/store/authStore";
 
-const ROLE_LABEL = { field_surveyor: "Field Surveyor", supervisor: "Supervisor", admin: "Admin", user: "User" } as const;
+const ROLE_LABEL = { field_surveyor: "View only", supervisor: "Supervisor", admin: "Admin", user: "Regular User" } as const;
 
 /** Read-only: roles, status and supervisor are managed by administrators. */
 export default function MyProfile() {

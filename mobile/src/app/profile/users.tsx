@@ -1,12 +1,13 @@
 import { Ionicons } from "@expo/vector-icons";
 import { router, useFocusEffect } from "expo-router";
 import { useCallback, useState } from "react";
-import { Alert, FlatList, RefreshControl, StyleSheet, Switch, TextInput, View } from "react-native";
+import { Alert, FlatList, Pressable, RefreshControl, StyleSheet, Switch, TextInput, View } from "react-native";
 import { AppButton } from "@/components/ui/AppButton";
 import { AppText } from "@/components/ui/AppText";
 import { Avatar } from "@/components/ui/Avatar";
 import { useTopInset } from "@/components/ui/Screen";
 import { ScreenHeader } from "@/components/ui/ScreenHeader";
+import { Segmented } from "@/components/ui/Segmented";
 import { EmptyState, ErrorState, SurveyCardSkeleton } from "@/components/ui/States";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { UserService } from "@/services/admin/UserService";
@@ -15,13 +16,14 @@ import { useAuthStore } from "@/store/authStore";
 import { colors, fonts, radius } from "@/theme";
 import type { ManagedUser } from "@/types/api";
 
-const ROLE_LABEL: Record<string, string> = { admin: "Admin", user: "User", field_surveyor: "Field Surveyor", supervisor: "Supervisor" };
+const ROLE_LABEL: Record<string, string> = { admin: "Admin", user: "Regular user", field_surveyor: "View only", supervisor: "Supervisor" };
 
-/** Admin-only: list accounts, activate/deactivate, add new ones. */
+/** Admin-only: list accounts, activate/deactivate, add new ones; tap a user to edit or delete. */
 export default function ManageUsers() {
   const top = useTopInset();
   const me = useAuthStore((s) => s.profile?.id);
   const [users, setUsers] = useState<ManagedUser[]>([]);
+  const [roleFilter, setRoleFilter] = useState<"user" | "admin" | "all">("user");
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<{ message: string; offline: boolean } | null>(null);
@@ -30,7 +32,7 @@ export default function ManageUsers() {
   const load = useCallback(async (term: string) => {
     setLoading(true);
     try {
-      const res = await UserService.list({ role: "admin", search: term.trim() || undefined });
+      const res = await UserService.list({ role: roleFilter === "all" ? undefined : roleFilter, search: term.trim() || undefined });
       setUsers(res.data);
       setError(null);
     } catch (e) {
@@ -38,7 +40,7 @@ export default function ManageUsers() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [roleFilter]);
 
   // Reload whenever the screen is shown (e.g. after adding a user).
   useFocusEffect(
@@ -71,7 +73,12 @@ export default function ManageUsers() {
 
   return (
     <View style={[styles.root, { paddingTop: top }]}>
-      <ScreenHeader title="Manage Admins" />
+      <ScreenHeader title="Users" />
+      <View style={{ paddingHorizontal: 16, paddingBottom: 10 }}>
+        <Segmented value={roleFilter} onChange={setRoleFilter} options={[
+          { value: "user", label: "Regular users" }, { value: "admin", label: "Admins" }, { value: "all", label: "All" },
+        ]} />
+      </View>
       <View style={styles.searchRow}>
         <View style={styles.search}>
           <Ionicons name="search" size={18} color={colors.muted} />
@@ -103,13 +110,18 @@ export default function ManageUsers() {
           ) : error ? (
             <ErrorState offline={error.offline} message={error.message} onRetry={() => void load(search)} />
           ) : (
-            <EmptyState icon="people-outline" title="No admins found" actionTitle="Add Admin" onAction={() => router.push("/profile/add-user")} />
+            <EmptyState icon="people-outline" title="No users found" actionTitle="Add User" onAction={() => router.push("/profile/add-user")} />
           )
         }
         renderItem={({ item: u }) => {
           const isMe = u.id === me;
           return (
-            <View style={styles.row}>
+            <Pressable
+              onPress={() => router.push({ pathname: "/profile/user/[id]", params: { id: u.id } })}
+              accessibilityRole="button"
+              accessibilityLabel={`Edit ${u.full_name}`}
+              style={({ pressed }) => [styles.row, pressed && { opacity: 0.85 }]}
+            >
               <Avatar name={u.full_name} size={42} />
               <View style={{ flex: 1, gap: 3 }}>
                 <AppText variant="bodyStrong" numberOfLines={1}>
@@ -132,7 +144,8 @@ export default function ManageUsers() {
                 trackColor={{ true: colors.primary, false: colors.borderStrong }}
                 accessibilityLabel={`${u.full_name} active`}
               />
-            </View>
+              <Ionicons name="chevron-forward" size={18} color={colors.muted} />
+            </Pressable>
           );
         }}
       />

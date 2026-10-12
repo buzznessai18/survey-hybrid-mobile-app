@@ -1,4 +1,5 @@
 import type { CreateSurveyRequest, UpdateSurveyRequest } from "@/types/api";
+import type { FormSubmitRequest } from "@/services/records/RecordServices";
 import type { QueueItem, SurveyDetailsValues, SurveyDraft } from "@/types/survey";
 import { normalizeMobile } from "./mobile";
 
@@ -12,9 +13,16 @@ export function photoStoragePath(userId: string, surveyId: string, fileName: str
   return `${userId}/${surveyId}/${fileName}`;
 }
 
+/**
+ * A field survey needs both GPS location and crop & area; the photo is optional.
+ * 1/14 forms may skip them (steps 3–5) and are then saved without a survey.
+ */
+export const hasFieldSurvey = (x: { details: SurveyDetailsValues | null; location: unknown }) => !!x.details && !!x.location;
+
 /** Exact create-survey request body (supabase/functions/create-survey/index.ts). */
 export function toCreatePayload(item: QueueItem, photoPath: string | null): CreateSurveyRequest {
   const d = item.details;
+  if (!d || !item.location) throw new IncompleteDraftError("Field location or crop details are missing");
   return {
     id: item.id,
     farmer: { name: d.farmerName.trim(), mobile: normalizeMobile(d.farmerMobile) },
@@ -36,10 +44,26 @@ export function toCreatePayload(item: QueueItem, photoPath: string | null): Crea
 
 export class IncompleteDraftError extends Error {}
 
+/** Survey no. and farmer of a queued item: from its field survey, or from the 1/14 form when it has none. */
+export function queueSummary(q: QueueItem) {
+  const d = q.details;
+  return {
+    surveyNumber: d?.surveyNumber ?? q.land?.surveyNumber ?? "",
+    subDivision: d?.subDivision ?? q.land?.subDivision ?? "",
+    farmerName: d?.farmerName ?? q.farmer?.name ?? "",
+    farmerMobile: d?.farmerMobile ?? q.farmer?.mobile ?? "",
+  };
+}
+
 /** Freeze a completed draft into a queue item ready for sync. */
 export function queueItemFromDraft(draft: SurveyDraft, userId: string, now = new Date()): QueueItem {
-  if (!draft.details) throw new IncompleteDraftError("Survey details are missing");
-  if (!draft.location) throw new IncompleteDraftError("Field location is missing");
+  const isForm = !!(draft.formId && draft.farmer && draft.land);
+  const withSurvey = hasFieldSurvey(draft);
+  if (!isForm && !withSurvey) {
+    // Legacy survey-only drafts always need the survey.
+    if (!draft.details) throw new IncompleteDraftError("Survey details are missing");
+    throw new IncompleteDraftError("Field location is missing");
+  }
   const ts = now.toISOString();
   return {
     id: draft.id,
@@ -49,16 +73,72 @@ export function queueItemFromDraft(draft: SurveyDraft, userId: string, now = new
     updatedAt: ts,
     retryCount: 0,
     nextAttemptAt: 0,
-    details: draft.details,
-    cropName: draft.cropName,
-    location: draft.location,
-    photoLocalUri: draft.photo?.uri ?? null,
+    // Without a field survey, location / photo / crop are not saved.
+    details: withSurvey ? draft.details : null,
+    cropName: withSurvey ? draft.cropName : null,
+    location: withSurvey ? draft.location : null,
+    photoLocalUri: withSurvey ? draft.photo?.uri ?? null : null,
     photoPath: null,
     notes: draft.notes,
     duplicateReason: draft.duplicateReason,
     duplicateReasonNotes: draft.duplicateReasonNotes,
     lastError: null,
     result: null,
+    ...(draft.formId && draft.farmer && draft.land ? { formId: draft.formId, farmer: draft.farmer, land: draft.land } : {}),
+  };
+}
+
+const num = (v: string) => (v.trim() === "" ? null : Number(v));
+
+/** Exact land-records "submit" body: 1/14 form + farmer + the field survey (land-records/index.ts). */
+export function toFormSubmitPayload(item: QueueItem, photoPath: string | null): FormSubmitRequest {
+  if (!item.formId || !item.farmer || !item.land) throw new IncompleteDraftError("Land details are missing");
+  const f = item.farmer;
+  const l = item.land;
+  const survey = hasFieldSurvey(item) ? toCreatePayload(item, photoPath) : null;
+  return {
+    farmer: f.id
+      ? { id: f.id }
+      : {
+        name: f.name.trim(),
+        mobile: normalizeMobile(f.mobile),
+        father_name: nullIfBlank(f.fatherName),
+        gender: f.gender || null,
+        category: f.category || null,
+        village: nullIfBlank(f.village),
+        taluka: f.taluka || null,
+      },
+    form: {
+      id: item.formId,
+      village: l.village.trim(),
+      taluka: l.taluka,
+      survey_number: l.surveyNumber.trim(),
+      sub_division: nullIfBlank(l.subDivision),
+      remarks: nullIfBlank(l.remarks),
+      // Only drafts from older app versions have these; the server fills area from the survey.
+      occupant_names: nullIfBlank(l.occupantNames ?? ""),
+      tenant_name: nullIfBlank(l.tenantName ?? ""),
+      area_sq_m: l.areaSqM ? Number(l.areaSqM) : null,
+      land_class: l.landClass ?? null,
+      assessment_rs: num(l.assessmentRs ?? ""),
+      kharif_crop_id: l.kharifCropId || null,
+      rabi_crop_id: l.rabiCropId || null,
+      irrigation_source: l.irrigation ?? "rainfed",
+    },
+    survey: survey ? {
+      id: survey.id,
+      crop_id: survey.crop_id,
+      area: survey.area,
+      area_unit: survey.area_unit,
+      visit_date: survey.visit_date,
+      latitude: survey.latitude,
+      longitude: survey.longitude,
+      gps_accuracy: survey.gps_accuracy,
+      photo_path: survey.photo_path,
+      duplicate_reason: survey.duplicate_reason,
+      duplicate_reason_notes: survey.duplicate_reason_notes,
+      notes: survey.notes,
+    } : undefined,
   };
 }
 

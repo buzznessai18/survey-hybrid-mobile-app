@@ -1,6 +1,6 @@
 import { toIsoDate } from "../date";
 import { isValidMobile, normalizeCode, normalizeMobile, toE164 } from "../mobile";
-import { detailsSchema, duplicateReasonSchema, loginSchema, newUserSchema } from "../validation";
+import { detailsSchema, duplicateReasonSchema, editUserSchema, loginSchema, newUserSchema } from "../validation";
 
 const valid = {
   farmerName: "Ramesh Kumar",
@@ -82,8 +82,24 @@ describe("loginSchema", () => {
   it("validates the admin add-user form", () => {
     const ok = { fullName: "Asha", role: "user", mobile: "9876543210", email: "", password: "Secret-123" };
     expect(newUserSchema.safeParse(ok).success).toBe(true);
+    expect(newUserSchema.safeParse({ ...ok, role: "admin" }).success).toBe(true);
+    expect(newUserSchema.safeParse({ ...ok, role: "field_surveyor" }).success).toBe(false);
     expect(newUserSchema.safeParse({ ...ok, mobile: "" }).success).toBe(false); // needs mobile or email
     expect(newUserSchema.safeParse({ ...ok, mobile: "", email: "asha@x.co" }).success).toBe(true);
     expect(newUserSchema.safeParse({ ...ok, password: "short" }).success).toBe(false);
+  });
+});
+
+describe("editUserSchema", () => {
+  const ok = { fullName: "Asha Naik", role: "user" as const, mobile: "9876543210", email: "", password: "" };
+  it("keeps the password unless one is typed", () => {
+    expect(editUserSchema.safeParse(ok).success).toBe(true);
+    expect(editUserSchema.safeParse({ ...ok, password: "New-pass-1" }).success).toBe(true);
+    expect(editUserSchema.safeParse({ ...ok, password: "short" }).success).toBe(false);
+  });
+  it("still needs a way to sign in", () => {
+    expect(editUserSchema.safeParse({ ...ok, mobile: "" }).success).toBe(false);
+    expect(editUserSchema.safeParse({ ...ok, mobile: "", email: "asha@x.co" }).success).toBe(true);
+    expect(editUserSchema.safeParse({ ...ok, mobile: "12345" }).success).toBe(false);
   });
 });

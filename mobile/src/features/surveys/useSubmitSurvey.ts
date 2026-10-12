@@ -39,11 +39,14 @@ export function useSubmitSurvey() {
       switch (outcome.kind) {
         case "synced":
           useDraftStore.getState().clear();
+          // A 1/14 form may be saved without a field survey (steps 3–5 skipped).
           goToSuccess({
-            id: outcome.response.survey.id,
-            code: outcome.response.survey.survey_id,
+            id: outcome.response.survey?.id ?? outcome.item.result?.formDbId ?? draft.id,
+            code: outcome.response.survey?.survey_id ?? "",
             replay: outcome.response.idempotent_replay ? "1" : "0",
-            duplicate: outcome.response.survey.duplicate_check.duplicate_found ? "1" : "0",
+            duplicate: outcome.response.survey.duplicate_status && outcome.response.survey.duplicate_status !== "unique" ? "1" : "0",
+            form: outcome.item.result?.formCode ?? "",
+            formId: outcome.item.result?.formDbId ?? "",
           });
           break;
         case "queued":

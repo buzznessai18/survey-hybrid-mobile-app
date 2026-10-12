@@ -1,8 +1,23 @@
 # Field Survey — Mobile App
 
-This is the Expo (SDK 57) and React Native (0.86) app.
-- **Anyone:** opens the app and **directly** searches, views and maps all surveys. There's no login; farmer mobiles are masked.
-- **Admin:** signs in from **Profile → Admin Login** to add and edit surveys (GPS, photo, duplicate check, offline queue) and manage admins. Logging out returns to browsing.
+This is the Expo (SDK 57) and React Native (0.86) app for company staff. Farmers are not app users. Staff record what equipment or service a farmer received and print a receipt for the farmer.
+
+- **Regular user:**
+  1. **Home**: Add Record, Search Records, Recent Records, View All.
+  2. **Add Record** (one screen): farmer name*, gender, address, survey no.*, sub-division, land size* + unit* (Acres / Square metres), and equipment / service details (free text). Date and time are recorded by the server.
+  3. After the server confirms the save: the record details screen with **Print Receipt** and **Share Receipt PDF**.
+  4. **Records**: search by farmer name, survey no. (`312`, `312/4B`), sub-division or receipt no. (`RC-000123`), paged from the server. Any record can be opened and its receipt reprinted.
+- **Admin:** everything above, plus:
+  - **Delete record** (with confirmation).
+  - **User Management**: add, edit (name, role, sign-in mobile / email, new password), deactivate, delete (only users without records).
+  - **Reports**: farmer service records filtered by date range and search, exported to Excel (.xlsx) or PDF. Older datasets are still exportable. Also audit history.
+- The legacy `field_surveyor` role is view-only.
+
+The previous multi-step 1/14 form / survey workflow, map, farmer profiles, benefits and duplicate review are switched off (`LEGACY_SURVEY_WORKFLOW` in `src/app/_layout.tsx`). Their screens remain in the codebase for now.
+
+**Printing** goes through the OS print dialog (`expo-print`): AirPrint on iOS, and network / Mopria / manufacturer print services on Android. "Share Receipt PDF" sends the receipt to any app, including a printer vendor's app. iOS reports a cancelled print, and the app shows that it was cancelled. Android's print dialog doesn't report cancellation. No printer-model-specific integration is included yet; see the root README.
+
+Optional receipt branding in `.env`: `EXPO_PUBLIC_RECEIPT_ORG_NAME`, `EXPO_PUBLIC_RECEIPT_ORG_SUBTITLE`.
 
 It uses the existing Supabase backend in `../supabase`, calling the real Edge Functions and Storage. No API is mocked.
 

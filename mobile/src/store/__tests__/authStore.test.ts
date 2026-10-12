@@ -22,7 +22,7 @@ const profile: Profile = {
   id: "u1",
   full_name: "Rahul Sharma",
   mobile: "919876543210",
-  role: "user",
+  role: "field_surveyor",
   status: "active",
   supervisor_id: null,
 };
@@ -39,7 +39,7 @@ describe("authStore", () => {
     svc.signIn.mockResolvedValue({ session, profile });
     await useAuthStore.getState().signIn({ portal: "user", method: "phone", identifier: "9876543210", password: "x" });
     expect(useAuthStore.getState().status).toBe("signedIn");
-    expect(useAuthStore.getState().profile?.role).toBe("user");
+    expect(useAuthStore.getState().profile?.role).toBe("field_surveyor");
   });
 
   it("propagates invalid credentials without signing in", async () => {
@@ -66,35 +66,29 @@ describe("authStore", () => {
     expect(useAuthStore.getState().profile?.full_name).toBe("Rahul Sharma");
   });
 
-  it("enforces the chosen portal: admins via Admin, users via User", () => {
+  it("company users and admins may use the app; other roles may not", () => {
     const admin = { ...profile, role: "admin" as const };
-    expect(() => AuthService.assertCanUseApp(admin, "admin")).not.toThrow();
-    expect(() => AuthService.assertCanUseApp(profile, "user")).not.toThrow();
-    expect(() => AuthService.assertCanUseApp(profile, "admin")).toThrow(/not an admin/);
-    expect(() => AuthService.assertCanUseApp(admin, "user")).toThrow(/admin account/);
-    // Restoring a saved session accepts either role, but not others.
+    expect(() => AuthService.assertCanUseApp({ ...profile, role: "user" })).not.toThrow();
     expect(() => AuthService.assertCanUseApp(admin)).not.toThrow();
-    expect(() => AuthService.assertCanUseApp({ ...profile, role: "field_surveyor" })).toThrow();
-    expect(() => AuthService.assertCanUseApp({ ...profile, status: "inactive" }, "user")).toThrow(/disabled/);
+    expect(() => AuthService.assertCanUseApp(profile)).not.toThrow(); // legacy field_surveyor = company user
+    expect(() => AuthService.assertCanUseApp({ ...profile, role: "supervisor" })).toThrow();
+    expect(() => AuthService.assertCanUseApp(profile, "admin")).toThrow(/not an admin/);
+    expect(() => AuthService.assertCanUseApp({ ...profile, status: "inactive" })).toThrow(/disabled/);
   });
 
-  it("no stored session -> opens straight into read-only guest browsing (no network needed)", async () => {
+  it("no stored session -> sign-in screen (login is required)", async () => {
     svc.getSession.mockResolvedValue(null);
     await useAuthStore.getState().initialize();
-    const st = useAuthStore.getState();
-    expect(st.status).toBe("signedIn");
-    expect(st.session).toBeNull();
-    expect(st.profile?.is_guest).toBe(true);
-    expect(st.profile?.role).toBe("user");
+    expect(useAuthStore.getState().status).toBe("signedOut");
     expect(svc.loadProfile).not.toHaveBeenCalled();
   });
 
-  it("admin logout returns to guest browsing", async () => {
+  it("logout signs out to the login screen", async () => {
     useAuthStore.setState({ status: "signedIn", session, profile: { ...profile, role: "admin" } });
     await useAuthStore.getState().signOut();
     expect(svc.signOut).toHaveBeenCalled();
-    expect(useAuthStore.getState().status).toBe("signedIn");
-    expect(useAuthStore.getState().profile?.is_guest).toBe(true);
+    expect(useAuthStore.getState().status).toBe("signedOut");
+    expect(useAuthStore.getState().profile).toBeNull();
   });
 
   it("a forced sign-out (e.g. deactivated admin) shows the start screen instead", async () => {

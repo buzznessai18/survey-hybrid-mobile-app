@@ -8,12 +8,15 @@ import type { CreateSurveyResponse } from "@/types/api";
 import { makeDraft, makeQueueItem, SURVEY_ID, USER_ID } from "@/utils/__tests__/fixtures";
 
 jest.mock("../surveys/SurveyService", () => ({ SurveyService: { createSurvey: jest.fn() } }));
+jest.mock("../records/RecordServices", () => ({ FormService: { submit: jest.fn() } }));
 jest.mock("../storage/PhotoService", () => ({ PhotoService: { upload: jest.fn(), delete: jest.fn() } }));
 jest.mock("../supabase/client", () => ({
   supabase: { auth: { getSession: jest.fn(async () => ({ data: { session: { user: { id: "11111111-2222-4333-8444-555555555555" } } } })) } },
 }));
 
 const createSurvey = SurveyService.createSurvey as jest.Mock;
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const submitForm = require("../records/RecordServices").FormService.submit as jest.Mock;
 const upload = PhotoService.upload as jest.Mock;
 const PHOTO_PATH = `${USER_ID}/${SURVEY_ID}/field-photo.jpg`;
 
@@ -147,5 +150,31 @@ describe("SyncService", () => {
   it("back-off grows and is capped", () => {
     expect(backoffDelay(1)).toBeLessThan(backoffDelay(3));
     expect(backoffDelay(50)).toBe(30 * 60_000);
+  });
+
+  it("1/14 form items sync via land-records submit (form + survey together) and keep the form code", async () => {
+    const formId = "0f0f0f0f-0000-4000-8000-000000000000";
+    const land = {
+      village: "Aldona", taluka: "Bardez" as const, surveyNumber: "112", subDivision: "3", occupantNames: "Ramesh", tenantName: "",
+      areaSqM: "8500", landClass: "paddy" as const, assessmentRs: "", irrigation: "well" as const, remarks: "",
+      kharifCropId: "", rabiCropId: "",
+    };
+    const farmer = { id: "f1", name: "Ramesh", mobile: "9876543210", fatherName: "", gender: "" as const, category: "" as const, village: "", taluka: "" as const };
+    submitForm.mockRejectedValueOnce(new ApiError("network", "offline")).mockResolvedValueOnce({
+      created: false, idempotent_replay: true,
+      form: { id: formId, form_id: "LR-000042" },
+      surveys: [{ id: SURVEY_ID, survey_id: "SV-000900", duplicate_status: "unique" }],
+    });
+    const first = await SyncService.submitDraft(makeDraft({ formId, farmer, land }), USER_ID);
+    expect(first.kind).toBe("queued");
+    const second = await SyncService.syncItem(SURVEY_ID);
+    expect(second.kind).toBe("synced");
+    expect(createSurvey).not.toHaveBeenCalled();
+    expect(submitForm).toHaveBeenCalledTimes(2);
+    expect(submitForm.mock.calls[0][0].form.id).toBe(formId);
+    expect(submitForm.mock.calls[1][0].form.id).toBe(formId);
+    expect(submitForm.mock.calls[0][0].farmer).toEqual({ id: "f1" });
+    expect(item().result?.formCode).toBe("LR-000042");
+    expect(item().result?.surveyCode).toBe("SV-000900");
   });
 });

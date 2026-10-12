@@ -1,5 +1,6 @@
 // POST /functions/v1/update-survey
-// Admins only: edit any survey, including submission_status (approve/reject).
+// Field survey users: own surveys while pending. Admins: any survey,
+// including submission_status (approve/reject). Enforced in public.update_survey.
 // Changing survey number, sub-division or GPS re-runs duplicate detection.
 import { requireUser } from "../_shared/auth.ts";
 import { dbError, HttpError, json, readParams, serve } from "../_shared/http.ts";
@@ -28,7 +29,7 @@ const schema = z
   });
 
 serve(["POST"], async (req) => {
-  const { profile, userClient, adminClient } = await requireUser(req, ["admin"]);
+  const { profile, userClient, adminClient } = await requireUser(req, ["admin", "user"]);
   const { id, ...patch } = parse(schema, await readParams(req));
 
   if (Object.keys(patch).length === 0) {

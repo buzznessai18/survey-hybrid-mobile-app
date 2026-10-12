@@ -3,7 +3,6 @@ import { Tabs } from "expo-router";
 import type { ComponentProps } from "react";
 import type { ColorValue } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useUnsyncedCount } from "@/features/sync/hooks";
 import { colors, fonts } from "@/theme";
 
 type IconName = ComponentProps<typeof Ionicons>["name"];
@@ -19,8 +18,6 @@ const icon = (active: IconName, inactive: IconName) =>
 
 export default function TabsLayout() {
   const insets = useSafeAreaInsets();
-  const { pending, failed } = useUnsyncedCount();
-  const waiting = pending + failed;
   return (
     <Tabs
       screenOptions={{
@@ -38,17 +35,13 @@ export default function TabsLayout() {
       }}
     >
       <Tabs.Screen name="index" options={{ title: "Home", tabBarIcon: icon("home", "home-outline") }} />
-      <Tabs.Screen
-        name="surveys"
-        options={{
-          title: "Surveys",
-          tabBarIcon: icon("document-text", "document-text-outline"),
-          tabBarBadge: waiting > 0 ? waiting : undefined,
-          tabBarBadgeStyle: { backgroundColor: failed ? colors.error : colors.warning, fontFamily: fonts.semibold, fontSize: 11 },
-        }}
-      />
-      <Tabs.Screen name="map" options={{ title: "Map", tabBarIcon: icon("map", "map-outline") }} />
+      <Tabs.Screen name="records" options={{ title: "Records", tabBarIcon: icon("receipt", "receipt-outline") }} />
       <Tabs.Screen name="profile" options={{ title: "Profile", tabBarIcon: icon("person", "person-outline") }} />
+      {/* Previous survey workflow (farmer search, 1/14 forms & surveys, map): hidden from navigation.
+          The files are kept until the client confirms they can be removed. */}
+      <Tabs.Screen name="search" options={{ href: null }} />
+      <Tabs.Screen name="surveys" options={{ href: null }} />
+      <Tabs.Screen name="map" options={{ href: null }} />
     </Tabs>
   );
 }

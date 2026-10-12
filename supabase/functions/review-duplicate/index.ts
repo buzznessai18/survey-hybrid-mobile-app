@@ -1,5 +1,5 @@
 // POST /functions/v1/review-duplicate
-// Supervisor (assigned surveyors only) or admin reviews a duplicate match.
+// Supervisor (assigned surveyors only), admin or company user reviews a duplicate match.
 // The update runs as the caller, so RLS decides whether they may review it;
 // database triggers stamp reviewed_by/reviewed_at, write the audit log and
 // recompute the survey's duplicate_status.
@@ -15,7 +15,7 @@ const schema = z.object({
 });
 
 serve(["POST"], async (req) => {
-  const { userClient } = await requireUser(req, ["supervisor", "admin"]);
+  const { userClient } = await requireUser(req, ["supervisor", "admin", "user"]);
   const input = parse(schema, await readParams(req));
 
   const changes: Record<string, unknown> = { status: input.status };

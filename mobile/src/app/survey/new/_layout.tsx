@@ -4,6 +4,8 @@ import { colors } from "@/theme";
 export default function NewSurveyLayout() {
   return (
     <Stack screenOptions={{ headerShown: false, animation: "slide_from_right", contentStyle: { backgroundColor: colors.background } }}>
+      <Stack.Screen name="farmer" />
+      <Stack.Screen name="land" />
       <Stack.Screen name="details" />
       <Stack.Screen name="location" />
       <Stack.Screen name="photo" options={{ animation: "fade" }} />

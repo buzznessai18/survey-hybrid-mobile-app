@@ -10,7 +10,7 @@ type Filters = Pick<SearchSurveysRequest, "search" | "duplicate_status" | "statu
 
 /**
  * Paginated search-surveys (all surveys the caller may see — admins and
- * read-only users see everything) with pull-to-refresh and infinite scroll.
+ * company users see everything) with pull-to-refresh and infinite scroll.
  */
 export function useMySurveys(filters: Filters, enabled = true) {
   const isOnline = useNetworkStore((s) => s.isOnline);

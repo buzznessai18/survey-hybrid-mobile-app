@@ -270,6 +270,18 @@ export interface ManagedUser {
   updated_at: string;
 }
 
+/** admin-users "get": a user with sign-in details and what they have entered. */
+export interface ManagedUserDetail extends ManagedUser {
+  /** Sign-in email (Supabase Auth), if any. */
+  email: string | null;
+  /** Sign-in phone in E.164 (+919876543210), if any. */
+  phone: string | null;
+  last_sign_in_at: string | null;
+  records: { forms: number; surveys: number; service_records: number };
+  /** False when they entered service records, surveys or 1/14 forms (deactivate instead). */
+  can_delete: boolean;
+}
+
 export interface MapPoint {
   id: string;
   survey_id: string;
@@ -315,7 +327,7 @@ export interface SurveyReport {
 
 export interface ReportResponse {
   scope: "own" | "team" | "all";
-  report: SurveyReport;
+  report: SurveyReport & Partial<ReportExtras>;
 }
 
 /** Error envelope: { error: { code, message, details? } } */
@@ -325,4 +337,287 @@ export interface ApiErrorBody {
     message: string;
     details?: { fields?: Record<string, string> } & Record<string, unknown>;
   };
+}
+
+/* ------------------------------------------------------------------ */
+/* Farmers, 1/14 forms, schemes, applications (migrations 015-016)    */
+/* ------------------------------------------------------------------ */
+
+export const GOA_TALUKAS = [
+  "Bardez", "Bicholim", "Canacona", "Dharbandora", "Mormugao", "Pernem",
+  "Ponda", "Quepem", "Salcete", "Sanguem", "Sattari", "Tiswadi",
+] as const;
+export type Taluka = (typeof GOA_TALUKAS)[number];
+
+export const LAND_CLASSES = ["dry", "garden", "paddy", "khazan", "morad", "forest", "other"] as const;
+export type LandClass = (typeof LAND_CLASSES)[number];
+export const IRRIGATION_SOURCES = ["rainfed", "well", "borewell", "canal", "river", "tank", "other"] as const;
+export type IrrigationSource = (typeof IRRIGATION_SOURCES)[number];
+export const FARMER_CATEGORIES = ["general", "obc", "sc", "st"] as const;
+export type FarmerCategory = (typeof FARMER_CATEGORIES)[number];
+export const APPLICATION_STATUSES = ["applied", "under_review", "approved", "rejected", "disbursed"] as const;
+export type ApplicationStatus = (typeof APPLICATION_STATUSES)[number];
+/** Benefit / service type of a scheme (tractor, cylinder, subsidy, ...). */
+export const SCHEME_CATEGORIES = ["subsidy", "tractor", "equipment", "cylinder", "government_scheme", "service", "other"] as const;
+export type SchemeCategory = (typeof SCHEME_CATEGORIES)[number];
+export type FormStatus = "pending" | "verified" | "rejected";
+export type Gender = "male" | "female" | "other";
+
+export interface Farmer {
+  id: string;
+  name: string;
+  mobile: string;
+  father_name: string | null;
+  gender: Gender | null;
+  category: FarmerCategory | null;
+  village: string | null;
+  taluka: Taluka | null;
+  address: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface FarmerSearchItem extends Farmer {
+  form_count: number;
+  survey_count: number;
+  land_sq_m: number;
+  survey_numbers: string[];
+  form_ids: string[];
+  benefits_received: number;
+  benefits_pending: number;
+}
+
+export interface LandForm {
+  id: string;
+  form_id: string;
+  farmer_id: string;
+  farmer_name: string | null;
+  farmer_mobile: string | null;
+  village: string;
+  taluka: Taluka;
+  survey_number: string;
+  sub_division: string | null;
+  occupant_names: string | null;
+  tenant_name: string | null;
+  area_sq_m: number | null;
+  land_class: LandClass | null;
+  assessment_rs: number | null;
+  kharif_crop_id: string | null;
+  kharif_crop_name: string | null;
+  rabi_crop_id: string | null;
+  rabi_crop_name: string | null;
+  irrigation_source: IrrigationSource;
+  remarks: string | null;
+  status: FormStatus;
+  created_by: string;
+  created_by_name: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Survey summary rows attached to farmers and forms. */
+export interface LinkedSurvey {
+  id: string;
+  survey_id: string;
+  survey_number: string;
+  sub_division: string | null;
+  crop_name: string | null;
+  area: number;
+  area_unit: AreaUnit;
+  visit_date: string;
+  collected_by_name: string | null;
+  latitude: number;
+  longitude: number;
+  photo_url: string | null;
+  duplicate_status: DuplicateStatus;
+  submission_status: SubmissionStatus;
+  land_record_id: string | null;
+  form_id: string | null;
+  created_at: string;
+}
+
+export interface EligibilityCheck {
+  rule: string;
+  label: string;
+  passed: boolean;
+  detail: string | null;
+}
+
+export interface EligibilityResult {
+  scheme_id: string;
+  scheme_code: string;
+  scheme_name: string;
+  scheme_category?: SchemeCategory;
+  eligible: boolean;
+  land_sq_m: number;
+  checks: EligibilityCheck[];
+}
+
+export interface SchemeRules {
+  min_land_sq_m?: number;
+  max_land_sq_m?: number;
+  eligible_crop_ids?: string[];
+  eligible_talukas?: Taluka[];
+  eligible_categories?: FarmerCategory[];
+  cooldown_years?: number;
+  max_applications_per_farmer?: number;
+  require_verified_land?: boolean;
+}
+
+export interface Scheme {
+  id: string;
+  code: string;
+  name: string;
+  category: SchemeCategory;
+  department: string | null;
+  description: string | null;
+  benefit: string | null;
+  subsidy_percent: number | null;
+  max_amount_rs: number | null;
+  rules: SchemeRules;
+  status: "active" | "inactive";
+  valid_until: string | null;
+  application_counts?: Partial<Record<ApplicationStatus, number>>;
+}
+
+export interface Application {
+  id: string;
+  application_no: string;
+  farmer_id: string;
+  farmer_name: string | null;
+  farmer_village: string | null;
+  farmer_taluka: string | null;
+  scheme_id: string;
+  scheme_code: string | null;
+  scheme_name: string | null;
+  scheme_category: SchemeCategory | null;
+  land_record_id: string | null;
+  status: ApplicationStatus;
+  amount_rs: number | null;
+  applied_on: string;
+  decided_at: string | null;
+  remarks: string | null;
+  updated_by_name: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface FarmerProfile {
+  farmer: Farmer & { land_sq_m: number };
+  forms: LandForm[];
+  surveys: LinkedSurvey[];
+  /** Benefits / services history and scheme eligibility. */
+  applications: Application[];
+  eligibility: EligibilityResult[];
+}
+
+/** land-records check_duplicate */
+export interface FormDuplicateCheck {
+  duplicate_found: boolean;
+  forms: LandForm[];
+  same_village_forms: number;
+  survey_check: DuplicateCheckResponse;
+}
+
+export interface AuditEntry {
+  id: number;
+  user_id: string | null;
+  user_name: string;
+  action: string;
+  entity_type: string;
+  entity_id: string | null;
+  metadata: { ref?: string; changes?: Record<string, { from: unknown; to: unknown }> } & Record<string, unknown>;
+  created_at: string;
+}
+
+export type ExportDataset = "records" | "surveys" | "forms" | "farmers" | "applications";
+
+export interface ExportResult {
+  title: string;
+  columns: { key: string; label: string }[];
+  rows: Record<string, unknown>[];
+  total: number;
+  truncated: boolean;
+  generated_at: string;
+  filters: {
+    date_from: string | null; date_to: string | null; taluka: string | null;
+    created_from?: string | null; created_to?: string | null; q?: string | null;
+  };
+}
+
+/** Farmer equipment / service record (service-records function, migration 022). */
+export type LandUnit = "acre" | "sq_m";
+
+export interface ServiceRecord {
+  id: string;
+  /** Receipt number, e.g. RC-000123 (set by the server). */
+  record_no: string;
+  farmer_name: string;
+  gender: Gender | null;
+  address: string | null;
+  survey_number: string;
+  sub_division: string | null;
+  land_size: number;
+  land_unit: LandUnit;
+  service_details: string | null;
+  created_by: string;
+  created_by_name: string | null;
+  /** Server timestamp (ISO, UTC); shown in the device's local timezone. */
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ServiceRecordInput {
+  id: string;
+  farmer_name: string;
+  gender: Gender | null;
+  address: string | null;
+  survey_number: string;
+  sub_division: string | null;
+  land_size: number;
+  land_unit: LandUnit;
+  service_details: string | null;
+}
+
+/** One labelled count in an analytics breakdown (taluka, crop, scheme, user). */
+export interface AnalyticsCount {
+  label: string;
+  count: number;
+}
+
+/** get-analytics (018, admins): one date range vs a comparison period. */
+export interface AdminAnalytics {
+  period: { from: string; to: string; prev_from: string; prev_to: string };
+  totals: {
+    forms: number;
+    forms_verified: number;
+    land_sq_m: number;
+    surveys: number;
+    duplicates: number;
+    farmers: number;
+    applications: number;
+    approved: number;
+    disbursed_rs: number;
+  };
+  previous: { forms: number; surveys: number; farmers: number; applications: number };
+  /** One entry per day of the range, zeros included. */
+  series: { date: string; forms: number; surveys: number }[];
+  forms_by_taluka: AnalyticsCount[];
+  forms_by_status: Partial<Record<"pending" | "verified" | "rejected", number>>;
+  surveys_by_crop: AnalyticsCount[];
+  applications_by_status: Partial<Record<ApplicationStatus, number>>;
+  applications_by_scheme: AnalyticsCount[];
+  /** Users who entered the most 1/14 forms. */
+  top_users: AnalyticsCount[];
+}
+
+/** get-reports extra tiles (015). Null when not in scope. */
+export interface ReportExtras {
+  forms_total: number;
+  forms_pending: number;
+  farmers_total: number | null;
+  applications_total: number | null;
+  applications_pending: number | null;
+  reviews_pending: number | null;
 }

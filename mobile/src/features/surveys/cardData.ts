@@ -1,6 +1,7 @@
 import type { SurveyCardData } from "@/components/survey/SurveyCard";
 import type { SurveyListItem } from "@/types/api";
 import type { QueueItem } from "@/types/survey";
+import { queueSummary } from "@/utils/serialization";
 import { formatShortDate, formatTime, toIsoDate } from "@/utils/date";
 import { formatArea, surveyNumberLabel } from "@/utils/format";
 import { queueStatusView, serverStatusView } from "@/utils/status";
@@ -23,11 +24,12 @@ export function serverCard(s: SurveyListItem): SurveyCardData {
 
 export function queueCard(q: QueueItem): SurveyCardData {
   const d = q.details;
+  const sum = queueSummary(q);
   return {
     key: `local-${q.id}`,
-    title: surveyNumberLabel(d.surveyNumber, d.subDivision || null),
-    farmer: d.farmerName,
-    meta: [formatArea(d.area, d.areaUnit), q.cropName].filter(Boolean).join(" • "),
+    title: surveyNumberLabel(sum.surveyNumber, sum.subDivision || null),
+    farmer: sum.farmerName,
+    meta: d ? [formatArea(d.area, d.areaUnit), q.cropName].filter(Boolean).join(" • ") : "1/14 form only (no field survey)",
     time: when(q.createdAt),
     status: queueStatusView(q.status),
     photoUri: q.photoLocalUri,

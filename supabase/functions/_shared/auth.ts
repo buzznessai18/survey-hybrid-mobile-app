@@ -85,37 +85,11 @@ export interface ViewerContext {
   adminClient: SupabaseClient;
 }
 
-const GUEST_PROFILE: Profile = {
-  id: "00000000-0000-0000-0000-000000000000",
-  full_name: "Guest",
-  mobile: null,
-  role: "user",
-  status: "active",
-  supervisor_id: null,
-};
-
-/** True when the bearer token is the project's public anon key (no user session). */
-function isAnonKey(token: string): boolean {
-  if (token === config.anonKey) return true;
-  try {
-    const payload = JSON.parse(atob(token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/")));
-    return payload?.role === "anon" && typeof payload?.sub !== "string";
-  } catch {
-    return false;
-  }
-}
-
 /**
- * For read-only endpoints: accepts a signed-in user (any active role) or a
- * no-login guest calling with just the public anon key. The API gateway has
- * already verified the key's signature (verify_jwt = true).
+ * For read endpoints: any signed-in, active user. (No-login guest access was
+ * removed in 015 — every request needs a user session again.)
  */
 export async function requireViewer(req: Request): Promise<ViewerContext> {
-  const token = (req.headers.get("Authorization") ?? "").match(/^Bearer\s+(.+)$/i)?.[1];
-  if (token && isAnonKey(token)) {
-    const adminClient = createAdminClient();
-    return { profile: GUEST_PROFILE, isGuest: true, readClient: adminClient, adminClient };
-  }
   const ctx = await requireUser(req);
   const viewerOnly = ctx.profile.role === "user";
   return { profile: ctx.profile, isGuest: false, readClient: viewerOnly ? ctx.adminClient : ctx.userClient, adminClient: ctx.adminClient };

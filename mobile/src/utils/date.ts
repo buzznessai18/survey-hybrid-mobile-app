@@ -55,3 +55,15 @@ export function maxVisitDate(): string {
   t.setDate(t.getDate() + 1);
   return toIsoDate(t);
 }
+
+/**
+ * Local calendar days (YYYY-MM-DD) -> the exact instants they start and end, as
+ * ISO timestamps. Filtering server timestamps with these follows the user's own
+ * timezone instead of UTC days.
+ */
+export function localDayRange(from: string, to: string): { created_from: string; created_to: string } {
+  const start = fromIsoDate(from);
+  const end = fromIsoDate(to);
+  end.setHours(23, 59, 59, 999);
+  return { created_from: start.toISOString(), created_to: end.toISOString() };
+}

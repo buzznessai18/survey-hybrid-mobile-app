@@ -98,12 +98,12 @@ Deno.test("rejects unauthenticated calls", async () => {
   assertEquals((await call("search-surveys", null)).status, 401);
 });
 
-Deno.test("role in user metadata is ignored; new users are pending field surveyors", async () => {
+Deno.test("role in user metadata is ignored; new users are pending company users", async () => {
   const { data } = await service.auth.admin.createUser({
     email: `meta-${run}@example.test`, password: PASSWORD, email_confirm: true, user_metadata: { role: "admin" },
   });
   const { data: profile } = await service.from("profiles").select("role, status").eq("id", data.user!.id).single();
-  assertEquals(profile, { role: "field_surveyor", status: "pending" });
+  assertEquals(profile, { role: "user", status: "pending" });
 });
 
 Deno.test("users cannot change their own role", async () => {
@@ -118,18 +118,24 @@ Deno.test("users can update their own name", async () => {
   assertEquals(error, null);
 });
 
-Deno.test("only admins can create surveys", async () => {
-  assertEquals((await call("create-survey", viewer, payload())).status, 403);
-  assertEquals((await call("create-survey", surveyor, payload())).status, 403);
+Deno.test("admins and company users create surveys; the legacy field role cannot", async () => {
+  assertEquals((await call("create-survey", surveyor, payload({ survey_number: `S${run}`, sub_division: "1" }))).status, 403);
   // Unique name per run so re-runs don't hit the (mobile, name) unique index.
   const { data: farmer, error: fErr } = await service.from("farmers").insert({ name: `Direct ${run}`, mobile: "9000000000" }).select().single();
   if (fErr) throw fErr;
-  const farmerId = farmer.id;
-  const { error } = await viewer.client.from("surveys").insert({
-    farmer_id: farmerId, crop_id: crop!.id, area: 1, area_unit: "acre", survey_number: "X",
-    visit_date: "2026-01-01", collected_by: viewer.id, latitude: 1, longitude: 1, gps_accuracy: 1,
+  const { error } = await surveyor.client.from("surveys").insert({
+    farmer_id: farmer.id, crop_id: crop!.id, area: 1, area_unit: "acre", survey_number: "X",
+    visit_date: "2026-01-01", collected_by: surveyor.id, latitude: 1, longitude: 1, gps_accuracy: 1,
   });
-  assertExists(error, "direct inserts are blocked by RLS");
+  assertExists(error, "direct inserts by read-only roles are blocked by RLS");
+
+  // Elsewhere (own survey number, far away) so the admin duplicate tests below are unaffected.
+  const own = await call("create-survey", viewer, payload({ survey_number: `U${run}`, sub_division: "1", latitude: BASE.lat + 0.2 }));
+  assertEquals(own.status, 201, JSON.stringify(own.body));
+  assertEquals(own.body.survey.collected_by, viewer.id);
+  const mine = await call("get-my-surveys", viewer, { search: `U${run}` });
+  assertEquals(mine.status, 200, JSON.stringify(mine.body));
+  assertEquals(mine.body.pagination.total, 1);
 });
 
 Deno.test("create-survey validates input", async () => {
@@ -215,19 +221,21 @@ Deno.test("same farmer on another field is not a duplicate", async () => {
 });
 
 // ---------------------------------------------------------------------------
-// Read-only users see everything admins add
+// Company users see everything admins add
 // ---------------------------------------------------------------------------
-Deno.test("users can search every admin's surveys (with photos) but not list 'my' surveys", async () => {
+Deno.test("users can search every admin's surveys (with photos); 'my' surveys are their own", async () => {
   const res = await call("search-surveys", viewer, { search: SN, include_photo_urls: true });
   assertEquals(res.status, 200, JSON.stringify(res.body));
   assertEquals(res.body.pagination.total, 3);
   const creators = new Set(res.body.data.map((s: { collected_by: string }) => s.collected_by));
   assert(creators.has(admin.id) && creators.has(admin2.id), "surveys from both admins");
   assert(res.body.data.every((s: { collected_by_name: string | null }) => s.collected_by_name), "admin names resolve");
-  assert(res.body.data.every((s: { farmer_mobile: string }) => /^\*+\d{4}$/.test(s.farmer_mobile)), "mobiles masked for viewers");
+  assert(res.body.data.every((s: { farmer_mobile: string }) => /^\d{10}$/.test(s.farmer_mobile)), "company staff see full mobiles");
   const exact = await call("search-surveys", viewer, { survey_number: SN, sub_division: "2" });
   assertEquals(exact.body.pagination.total, 2);
-  assertEquals((await call("get-my-surveys", viewer)).status, 403);
+  const mine = await call("get-my-surveys", viewer, { search: SN });
+  assertEquals(mine.body.pagination.total, 0, "admins' surveys are not the user's own");
+  assertEquals((await call("get-my-surveys", surveyor)).status, 200, "legacy role keeps its own list");
 });
 
 Deno.test("users can open any survey; unknown ids are 404", async () => {
@@ -264,65 +272,51 @@ Deno.test("map data: users see all points in the bounding box", async () => {
   assert(!away.body.points.some((p: { id: string }) => p.id === firstSurvey.id));
 });
 
-Deno.test("reports: users get the all-surveys scope", async () => {
-  const res = await call("get-reports", viewer, {});
+Deno.test("reports: admins get the all-surveys scope; company users get no dashboard", async () => {
+  assertEquals((await call("get-reports", viewer, {})).status, 403);
+  assertEquals((await call("get-reports", surveyor, {})).status, 403);
+  const res = await call("get-reports", admin, {});
   assertEquals(res.status, 200);
   assertEquals(res.body.scope, "all");
   assert(res.body.report.total_surveys >= 3);
   assert(res.body.report.duplicate_count >= 1);
 });
 
-Deno.test("viewers cannot bypass the functions to read tables directly", async () => {
-  const { data: surveys } = await viewer.client.from("surveys").select("id").limit(5);
-  assertEquals(surveys, []);
-  const { data: details } = await viewer.client.from("survey_details").select("farmer_mobile").limit(5);
-  assertEquals(details, [], "no unmasked mobiles via REST");
-  const { data: farmers } = await viewer.client.from("farmers").select("mobile").limit(5);
+Deno.test("read-only roles cannot bypass the functions to read tables directly", async () => {
+  const { data: farmers } = await surveyor.client.from("farmers").select("mobile").neq("created_by", surveyor.id).limit(5);
   assertEquals(farmers, []);
+  const { data: forms } = await surveyor.client.from("land_records").select("id").limit(5);
+  assertEquals(forms, []);
 });
 
 // ---------------------------------------------------------------------------
-// No-login guests (public anon key only)
+// No-login access is rejected (sign-in required since migration 015)
 // ---------------------------------------------------------------------------
-Deno.test("guests browse everything read-only with masked mobiles", async () => {
-  const list = await call("search-surveys", "guest", { search: SN, include_photo_urls: true });
-  assertEquals(list.status, 200, JSON.stringify(list.body));
-  assertEquals(list.body.pagination.total, 3);
-  assert(list.body.data.every((s: { farmer_mobile: string }) => /^\*+\d{4}$/.test(s.farmer_mobile)));
-  const detail = await call("get-survey", "guest", { id: firstSurvey.id });
-  assertEquals(detail.status, 200);
-  assertEquals(detail.body.survey.farmer_mobile, "******3210");
-  const box = { min_lat: BASE.lat - 0.01, max_lat: BASE.lat + 0.01, min_lng: BASE.lng - 0.01, max_lng: BASE.lng + 0.01 };
-  const map = await call("get-survey-map-data", "guest", box);
-  assert(map.body.points.some((p: { id: string }) => p.id === firstSurvey.id));
-  const report = await call("get-reports", "guest", {});
-  assertEquals(report.body.scope, "all");
-});
-
-Deno.test("guests cannot write, export, check duplicates or manage users", async () => {
-  for (const fn of ["create-survey", "update-survey", "review-duplicate", "admin-users", "check-survey-duplicate", "get-my-surveys"]) {
-    assertEquals((await call(fn, "guest", { id: firstSurvey.id })).status, 401, fn);
+Deno.test("requests with only the public anon key are rejected", async () => {
+  for (const fn of ["search-surveys", "get-survey", "get-survey-map-data", "get-reports", "create-survey", "farmers", "land-records"]) {
+    assertEquals((await call(fn, "guest", { id: firstSurvey.id, action: "search" })).status, 401, fn);
   }
-  assertEquals((await call("search-surveys", "guest", { format: "csv" })).status, 403);
   const anon = createClient(URL, ANON, opts);
   const { data } = await anon.from("survey_details").select("farmer_mobile").limit(5);
   assert(!data || data.length === 0, "anon key alone reads no table data");
 });
 
 // ---------------------------------------------------------------------------
-// Writes are admin-only
+// Writes: admins and company users; the legacy field role is read-only
 // ---------------------------------------------------------------------------
-Deno.test("users cannot edit or review; admins can", async () => {
-  assertEquals((await call("update-survey", viewer, { id: firstSurvey.id, notes: "x" })).status, 403);
+Deno.test("company users edit and review; the legacy field role cannot", async () => {
   assertEquals((await call("update-survey", surveyor, { id: firstSurvey.id, notes: "x" })).status, 403);
-  const { data: rows } = await viewer.client.from("surveys").update({ notes: "hack" }).eq("id", firstSurvey.id).select();
-  assertEquals(rows, [], "RLS gives users no UPDATE on surveys");
+  const { data: rows } = await surveyor.client.from("surveys").update({ notes: "hack" }).eq("id", firstSurvey.id).select();
+  assertEquals(rows, [], "RLS gives the legacy role no UPDATE on others' surveys");
+  const edit = await call("update-survey", viewer, { id: firstSurvey.id, notes: "Checked boundary" });
+  assertEquals(edit.status, 200, JSON.stringify(edit.body));
+  assertEquals(edit.body.survey.notes, "Checked boundary");
 
   const matchId = dupSurvey.duplicate_check.matches[0].duplicate_match_id;
-  assertEquals((await call("review-duplicate", viewer, { duplicate_match_id: matchId, status: "not_duplicate" })).status, 403);
-  const review = await call("review-duplicate", admin, { duplicate_match_id: matchId, status: "confirmed_duplicate", notes: "Same plot" });
+  assertEquals((await call("review-duplicate", surveyor, { duplicate_match_id: matchId, status: "not_duplicate" })).status, 403);
+  const review = await call("review-duplicate", viewer, { duplicate_match_id: matchId, status: "confirmed_duplicate", notes: "Same plot" });
   assertEquals(review.status, 200, JSON.stringify(review.body));
-  assertEquals(review.body.duplicate_match.reviewed_by, admin.id);
+  assertEquals(review.body.duplicate_match.reviewed_by, viewer.id);
   assertEquals(review.body.survey.duplicate_status, "confirmed_duplicate");
 });
 
@@ -345,7 +339,7 @@ Deno.test("admin can approve; users see the new status", async () => {
 // ---------------------------------------------------------------------------
 // Storage
 // ---------------------------------------------------------------------------
-Deno.test("photo upload: admins into their own folder only; users cannot upload", async () => {
+Deno.test("photo upload: editors into their own folder only; the legacy role cannot upload", async () => {
   const id = crypto.randomUUID();
   const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xd9]);
   const own = await admin.client.storage.from("field-photos").upload(`${admin.id}/${id}/field-photo.jpg`, jpeg, { contentType: "image/jpeg" });
@@ -353,7 +347,9 @@ Deno.test("photo upload: admins into their own folder only; users cannot upload"
   const foreign = await admin.client.storage.from("field-photos").upload(`${admin2.id}/${id}/field-photo.jpg`, jpeg, { contentType: "image/jpeg" });
   assertExists(foreign.error);
   const byViewer = await viewer.client.storage.from("field-photos").upload(`${viewer.id}/${id}/field-photo.jpg`, jpeg, { contentType: "image/jpeg" });
-  assertExists(byViewer.error);
+  assertEquals(byViewer.error, null, "company users upload into their own folder");
+  const bySurveyor = await surveyor.client.storage.from("field-photos").upload(`${surveyor.id}/${id}/field-photo.jpg`, jpeg, { contentType: "image/jpeg" });
+  assertExists(bySurveyor.error);
 
   const wrongId = await call("create-survey", admin, payload({ id: crypto.randomUUID(), photo_path: `${admin.id}/${id}/field-photo.jpg` }));
   assertEquals(wrongId.status, 422, "photo path must match the survey id");

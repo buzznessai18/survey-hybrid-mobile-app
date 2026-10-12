@@ -1,5 +1,5 @@
 import { callFunction } from "@/services/api/functions";
-import type { ManagedUser, Paginated, ProfileStatus, Role } from "@/types/api";
+import type { ManagedUser, ManagedUserDetail, Paginated, ProfileStatus, Role } from "@/types/api";
 
 /** Account management via the admin-users Edge Function (admins only). */
 export const UserService = {
@@ -14,8 +14,20 @@ export const UserService = {
     return data.user;
   },
 
-  async update(req: { user_id: string; role?: Role; status?: ProfileStatus; full_name?: string }) {
+  async get(userId: string) {
+    const { data } = await callFunction<{ user: ManagedUserDetail }>("admin-users", { action: "get", user_id: userId });
+    return data.user;
+  },
+
+  /** `email` / `phone` (E.164) / `password` change how the person signs in. */
+  async update(req: { user_id: string; role?: Role; status?: ProfileStatus; full_name?: string; email?: string; phone?: string; password?: string }) {
     const { data } = await callFunction<{ user: ManagedUser }>("admin-users", { action: "update", ...req });
     return data.user;
+  },
+
+  /** Permanent. Refused (409 user_has_records) for users who entered surveys or 1/14 forms. */
+  async remove(userId: string) {
+    const { data } = await callFunction<{ deleted: { id: string; full_name: string } }>("admin-users", { action: "delete", user_id: userId });
+    return data.deleted;
   },
 };

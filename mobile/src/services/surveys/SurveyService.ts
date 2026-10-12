@@ -46,7 +46,7 @@ export const SurveyService = {
     return data.survey;
   },
 
-  /** update-survey — admins only. */
+  /** update-survey — admins and company users. */
   async updateSurvey(req: UpdateSurveyRequest): Promise<SurveyDetail> {
     const { data } = await callFunction<{ survey: SurveyDetail }>("update-survey", req, { timeoutMs: 30_000 });
     return data.survey;

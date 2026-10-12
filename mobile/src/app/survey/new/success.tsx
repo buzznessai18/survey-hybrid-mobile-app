@@ -13,13 +13,15 @@ import { colors, fonts } from "@/theme";
 
 /** Screen 10 — submitted (or saved offline). */
 export default function SuccessScreen() {
-  const { id, code, replay, queued, message, duplicate } = useLocalSearchParams<{
+  const { id, code, replay, queued, message, duplicate, form, formId } = useLocalSearchParams<{
     id: string;
     code?: string;
     replay?: string;
     queued?: string;
     message?: string;
     duplicate?: string;
+    form?: string;
+    formId?: string;
   }>();
   const top = useTopInset();
   const insets = useSafeAreaInsets();
@@ -48,7 +50,7 @@ export default function SuccessScreen() {
         </Animated.View>
         <Animated.View entering={FadeInDown.duration(350).delay(150)} style={{ alignItems: "center" }}>
           <AppText style={styles.title} accessibilityRole="header">
-            {isQueued ? "Survey Saved Offline" : "Survey Submitted Successfully!"}
+            {isQueued ? "Form Saved Offline" : form ? "1/14 Form Submitted!" : "Survey Submitted Successfully!"}
           </AppText>
           {isQueued ? (
             <AppText variant="body" style={styles.sub}>
@@ -56,12 +58,24 @@ export default function SuccessScreen() {
             </AppText>
           ) : (
             <>
-              <AppText variant="caption" style={{ marginTop: 18 }}>
-                Survey ID
-              </AppText>
-              <AppText style={styles.code} selectable>
-                {code || "—"}
-              </AppText>
+              {form ? (
+                <>
+                  <AppText variant="caption" style={{ marginTop: 18 }}>1/14 Form ID</AppText>
+                  <AppText style={styles.code} selectable>{form}</AppText>
+                </>
+              ) : null}
+              {code || !form ? (
+                <>
+                  <AppText variant="caption" style={{ marginTop: form ? 10 : 18 }}>
+                    Field survey ID
+                  </AppText>
+                  <AppText style={form ? styles.codeSmall : styles.code} selectable>
+                    {code || "—"}
+                  </AppText>
+                </>
+              ) : (
+                <AppText variant="caption" style={{ marginTop: 10 }}>Saved without a field survey (location or crop skipped).</AppText>
+              )}
               {replay === "1" ? (
                 <AppText variant="caption" style={styles.sub}>
                   This survey was already submitted. No duplicate record was created.
@@ -69,7 +83,7 @@ export default function SuccessScreen() {
               ) : null}
               {duplicate === "1" ? (
                 <AppText variant="caption" style={styles.sub}>
-                  Flagged as a possible duplicate for supervisor review.
+                  Flagged as a possible duplicate for admin review.
                 </AppText>
               ) : null}
             </>
@@ -78,18 +92,22 @@ export default function SuccessScreen() {
       </View>
       <Animated.View entering={FadeInDown.duration(350).delay(250)} style={styles.actions}>
         <AppButton
-          title="Add Another Survey"
+          title="Add Another Form"
           icon="add"
           onPress={() => {
             startFresh();
-            router.replace("/survey/new/details");
+            router.replace("/survey/new/farmer");
           }}
         />
         <AppButton
-          title={isQueued ? "View Offline Data" : "View Survey"}
+          title={isQueued ? "View Offline Data" : formId ? "View 1/14 Form" : "View Survey"}
           variant="secondary"
           onPress={() =>
-            isQueued ? router.replace("/profile/offline") : router.replace({ pathname: "/survey/[id]", params: { id } })
+            isQueued
+              ? router.replace("/profile/offline")
+              : formId
+                ? router.replace({ pathname: "/form/[id]", params: { id: formId } })
+                : router.replace({ pathname: "/survey/[id]", params: { id } })
           }
         />
       </Animated.View>
@@ -114,5 +132,6 @@ const styles = StyleSheet.create({
   title: { fontFamily: fonts.bold, fontSize: 24, lineHeight: 30, textAlign: "center", color: colors.text },
   sub: { textAlign: "center", marginTop: 10 },
   code: { fontFamily: fonts.bold, fontSize: 28, letterSpacing: 1, color: colors.text, marginTop: 2 },
+  codeSmall: { fontFamily: fonts.bold, fontSize: 18, letterSpacing: 0.5, color: colors.textSecondary, marginTop: 2 },
   actions: { gap: 12, paddingHorizontal: 20 },
 });

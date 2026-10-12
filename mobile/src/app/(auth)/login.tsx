@@ -5,9 +5,7 @@ import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text
 import Animated, { FadeIn, FadeInDown } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { router } from "expo-router";
 import { AppButton } from "@/components/ui/AppButton";
-import { IconButton } from "@/components/ui/IconButton";
 import { AppInput } from "@/components/ui/AppInput";
 import { AppText } from "@/components/ui/AppText";
 import { FieldIllustration, LeafLogo } from "@/components/ui/Brand";
@@ -27,25 +25,16 @@ export default function LoginScreen() {
   const clearNotice = useAuthStore((s) => s.clearNotice);
   const isOnline = useNetworkStore((s) => s.isOnline);
   const [method, setMethod] = useState<Method>("phone");
-  const isGuest = useAuthStore((s) => s.status === "signedIn" && !!s.profile?.is_guest);
-  const enterGuest = useAuthStore((s) => s.enterGuest);
-  const [enteringGuest, setEnteringGuest] = useState(false);
+
   const [showPassword, setShowPassword] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const passwordRef = useRef<TextInput>(null);
 
   const { control, handleSubmit, formState, setValue, clearErrors } = useForm<LoginValues>({
     resolver: zodResolver(loginSchema),
-    // Only admins sign in with credentials; everyone else browses as a guest.
-    defaultValues: { portal: "admin", method: "phone", identifier: "", password: "" },
+    // Company users and admins share one sign-in; the account's role decides the app.
+    defaultValues: { method: "phone", identifier: "", password: "" },
   });
-
-  const browseAsGuest = async () => {
-    setEnteringGuest(true);
-    clearNotice();
-    await enterGuest();
-    setEnteringGuest(false);
-  };
 
   const selectMethod = (m: Method, keepMessage = false) => {
     setMethod(m);
@@ -80,11 +69,6 @@ export default function LoginScreen() {
           contentContainerStyle={[styles.scroll, { paddingTop: insets.top + 48, paddingBottom: insets.bottom + 24 }]}
           keyboardShouldPersistTaps="handled"
         >
-          {isGuest ? (
-            <View style={{ alignItems: "flex-end", marginTop: -32 }}>
-              <IconButton icon="close" label="Back to browsing" color={colors.white} variant="dark" onPress={() => router.back()} />
-            </View>
-          ) : null}
           <Animated.View entering={FadeIn.duration(500)} style={styles.brand}>
             <LeafLogo size={68} />
             <AppText style={styles.title} accessibilityRole="header">
@@ -96,11 +80,11 @@ export default function LoginScreen() {
           <Animated.View entering={FadeInDown.duration(450).delay(120)} style={[styles.card, shadow.raised]}>
             <View style={styles.titleRow}>
               <View style={styles.portalIcon}>
-                <Ionicons name="shield-checkmark" size={22} color={colors.primary} />
+                <Ionicons name="person-circle-outline" size={24} color={colors.primary} />
               </View>
               <View style={{ flex: 1 }}>
-                <AppText variant="title">Admin Login</AppText>
-                <AppText variant="caption">Admins add and manage surveys. Anyone can browse without signing in.</AppText>
+                <AppText variant="title">Sign in</AppText>
+                <AppText variant="caption">For company staff and administrators.</AppText>
               </View>
             </View>
 
@@ -185,27 +169,15 @@ export default function LoginScreen() {
             ) : null}
 
             <AppButton
-              title="Sign in as Admin"
+              title="Continue"
               loadingTitle="Signing in…"
               loading={formState.isSubmitting}
               onPress={onSubmit}
               style={{ marginTop: 4 }}
             />
 
-            {!isGuest ? (
-              <AppButton
-                title="Browse surveys without signing in"
-                icon="search"
-                variant="secondary"
-                loading={enteringGuest}
-                loadingTitle="Opening…"
-                onPress={browseAsGuest}
-                style={{ marginTop: 12 }}
-              />
-            ) : null}
-
             <AppText variant="small" style={styles.help}>
-              Forgot the admin password? Ask another admin to reset your account.
+              Accounts are created by your administrator. Forgot your password? Ask an admin to reset it.
             </AppText>
           </Animated.View>
         </ScrollView>

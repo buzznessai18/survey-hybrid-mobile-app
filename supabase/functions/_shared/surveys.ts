@@ -38,10 +38,6 @@ export function toNumber(v: unknown): number | null {
  * Read-only viewers (the `user` role, incl. no-login guests) see farmer
  * mobile numbers masked. Admins and supervisors see them in full.
  */
-export function viewerSeesMaskedMobiles(viewer: Profile): boolean {
-  return viewer.role === "user";
-}
-
 /** "9876543210" -> "******3210" */
 export function maskMobile(mobile: string | null): string | null {
   if (!mobile) return mobile;
@@ -93,7 +89,7 @@ export async function loadSurveySummaries(admin: SupabaseClient, ids: string[], 
   for (const row of rows) {
     const summary = formatSurvey(row, photos);
     const isOwn = row.collected_by === viewer.id;
-    if ((viewer.role === "field_surveyor" && !isOwn) || viewerSeesMaskedMobiles(viewer)) {
+    if (viewer.role === "field_surveyor" && !isOwn) {
       summary.farmer_mobile = maskMobile(summary.farmer_mobile);
     }
     delete summary.photo_path;
@@ -212,7 +208,6 @@ export async function loadSurveyDetail(
   );
 
   const detail = formatSurvey(survey, photos);
-  if (viewerSeesMaskedMobiles(viewer)) detail.farmer_mobile = maskMobile(detail.farmer_mobile);
   return { ...detail, duplicate_check: duplicate };
 }
 

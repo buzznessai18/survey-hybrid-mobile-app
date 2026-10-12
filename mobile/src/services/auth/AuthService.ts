@@ -5,6 +5,9 @@ import type { Portal, Profile } from "@/types/api";
 import { toE164 } from "@/utils/mobile";
 import type { LoginValues } from "@/utils/validation";
 
+
+/** Roles that can sign in: admin (full access), company users (records) and the legacy read-only field_surveyor. */
+export const canUseApp = (role: Profile["role"]) => role === "admin" || role === "user" || role === "field_surveyor";
 export type AuthErrorKind =
   | "invalid_credentials"
   | "account_disabled"
@@ -26,7 +29,7 @@ export class AuthError extends Error {
 const AUTH_MESSAGES: Record<AuthErrorKind, string> = {
   invalid_credentials: "Incorrect mobile number/email or password.",
   account_disabled: "Your account is disabled or not yet activated. Please contact your administrator.",
-  wrong_role: "This account can't use the app. Please contact your administrator.",
+  wrong_role: "This account can't use the mobile app. Please contact your administrator.",
   not_admin: "This account is not an admin. Choose \"User\" to sign in.",
   use_admin_login: "This is an admin account. Choose \"Admin\" to sign in.",
   phone_login_disabled:
@@ -100,14 +103,13 @@ export const AuthService = {
   },
 
   /**
-   * Admins sign in through the Admin option, read-only users through User.
-   * Without a portal (restoring a saved session) either role is accepted.
+   * Admins and company users use the app (only admins manage users and see reports).
+   * (`portal` is kept for compatibility: "admin" still requires an admin.)
    */
   assertCanUseApp(profile: Profile, portal?: Portal) {
     if (profile.status !== "active") throw authError("account_disabled");
-    if (profile.role !== "admin" && profile.role !== "user") throw authError("wrong_role");
+    if (!canUseApp(profile.role)) throw authError("wrong_role");
     if (portal === "admin" && profile.role !== "admin") throw authError("not_admin");
-    if (portal === "user" && profile.role !== "user") throw authError("use_admin_login");
   },
 
   async getSession(): Promise<Session | null> {

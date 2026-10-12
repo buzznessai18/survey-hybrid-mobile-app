@@ -3,16 +3,18 @@ import { StyleSheet, View } from "react-native";
 import { colors, fonts } from "@/theme";
 import { AppText } from "./AppText";
 
-const STEPS = ["Details", "Location", "Photo", "Review"] as const;
+/** Steps of the New 1/14 Form wizard. */
+export const FORM_STEPS = ["Farmer", "Land", "Location", "Photo", "Crop", "Review"] as const;
 
-/** 1 Details — 2 Location — 3 Photo — 4 Review */
-export function ProgressIndicator({ current }: { current: 1 | 2 | 3 | 4 }) {
+/** Numbered stepper: 1 Farmer — 2 Land — … */
+export function ProgressIndicator({ current, steps = FORM_STEPS }: { current: number; steps?: readonly string[] }) {
+  const STEPS = steps;
   return (
     <View
       style={styles.row}
       accessibilityRole="progressbar"
-      accessibilityLabel={`Step ${current} of 4: ${STEPS[current - 1]}`}
-      accessibilityValue={{ min: 1, max: 4, now: current }}
+      accessibilityLabel={`Step ${current} of ${STEPS.length}: ${STEPS[current - 1]}`}
+      accessibilityValue={{ min: 1, max: STEPS.length, now: current }}
     >
       {STEPS.map((label, i) => {
         const step = i + 1;
@@ -48,9 +50,9 @@ const styles = StyleSheet.create({
   line: { flex: 1, height: 2, backgroundColor: colors.border },
   lineActive: { backgroundColor: colors.primary },
   circle: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
     borderWidth: 2,
     borderColor: colors.borderStrong,
     backgroundColor: colors.card,
@@ -60,5 +62,5 @@ const styles = StyleSheet.create({
   circleActive: { backgroundColor: colors.primary, borderColor: colors.primary },
   circleDone: { backgroundColor: colors.primary, borderColor: colors.primary },
   num: { fontFamily: fonts.semibold, fontSize: 13, color: colors.muted },
-  label: { fontFamily: fonts.medium, fontSize: 12, color: colors.muted, marginTop: 6 },
+  label: { fontFamily: fonts.medium, fontSize: 11, color: colors.muted, marginTop: 6 },
 });

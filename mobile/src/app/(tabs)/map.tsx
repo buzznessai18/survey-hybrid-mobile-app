@@ -20,8 +20,12 @@ import { useNetworkStore } from "@/store/networkStore";
 import { useSettingsStore } from "@/store/settingsStore";
 import { colors, fonts, radius, shadow } from "@/theme";
 import type { MapPoint, SurveyDetail } from "@/types/api";
+import type { CapturedLocation, QueueItem, SurveyDetailsValues } from "@/types/survey";
+
 import { formatArea, surveyNumberLabel } from "@/utils/format";
 import { MARKER_COLORS, markerColor, queueStatusView, serverStatusView } from "@/utils/status";
+
+type MappedQueueItem = QueueItem & { location: CapturedLocation; details: SurveyDetailsValues };
 
 /** Wide initial view (India) used only until the device location is known. */
 const FALLBACK_CENTER: [number, number] = [78.9629, 20.5937];
@@ -54,7 +58,11 @@ export default function SurveyMapScreen() {
   const [loadedDetail, setLoadedDetail] = useState<SurveyDetail | null>(null);
   const [locationGranted, setLocationGranted] = useState(false);
 
-  const localPoints = useMemo(() => queue.filter((q) => q.status !== "synced"), [queue]);
+  // Only queued items with a field survey have a location to plot (1/14 forms may skip it).
+  const localPoints = useMemo(
+    () => queue.filter((q): q is MappedQueueItem => q.status !== "synced" && !!q.location && !!q.details),
+    [queue],
+  );
 
   const load = useCallback(async (b: Bounds) => {
     if (!useNetworkStore.getState().isOnline) return;

@@ -16,6 +16,7 @@ import { queueCounts, useQueueStore } from "@/store/queueStore";
 import { useSyncStore } from "@/store/syncStore";
 import { colors, fonts, radius, shadow } from "@/theme";
 import type { QueueItem } from "@/types/survey";
+import { queueSummary } from "@/utils/serialization";
 import { formatDateTime } from "@/utils/date";
 import { surveyNumberLabel } from "@/utils/format";
 import { queueStatusView } from "@/utils/status";
@@ -107,7 +108,7 @@ function Stat({ value, label, color }: { value: number; label: string; color: st
 
 function QueueRow({ item, retrying, onRetry, isOnline }: { item: QueueItem; retrying: boolean; onRetry: () => void; isOnline: boolean }) {
   const status = queueStatusView(item.status);
-  const d = item.details;
+  const d = queueSummary(item);
   const subtitle =
     item.status === "synced"
       ? `${item.result?.surveyCode ?? "Synced"}${item.result?.idempotentReplay ? " • already on server" : ""}`

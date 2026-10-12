@@ -12,6 +12,8 @@ import { Screen } from "@/components/ui/Screen";
 import { ScreenHeader } from "@/components/ui/ScreenHeader";
 import { EmptyState } from "@/components/ui/States";
 import { ExistingRecordCard } from "@/components/survey/ExistingRecordCard";
+import { LandFormCard } from "@/components/records/LandFormCard";
+import { formCheckHasWarning } from "@/features/surveys/useFormDuplicateCheck";
 import { useDraftStore } from "@/store/draftStore";
 import { colors, radius } from "@/theme";
 import type { DuplicateCheckMatch } from "@/types/api";
@@ -27,13 +29,18 @@ import { formatArea, formatDistance, surveyNumberLabel } from "@/utils/format";
 export default function DuplicateWarning() {
   const { mode } = useLocalSearchParams<{ mode?: string }>();
   const draft = useDraftStore((s) => s.draft);
-  const result = draft?.duplicateCheck ?? null;
+  const formCheck = draft?.formDuplicateCheck ?? null;
+  // Survey-level matches come from the 1/14 check (falls back to a legacy survey-only check).
+  const result = formCheck?.survey_check ?? draft?.duplicateCheck ?? null;
   const info = interpretDuplicateCheck(result);
+  const land = draft?.land;
+  const forms = formCheck?.forms ?? [];
+  const sameVillage = land ? forms.filter((f) => f.village.toLowerCase() === land.village.trim().toLowerCase()) : forms;
   const [viewing, setViewing] = useState<DuplicateCheckMatch | null>(null);
   const preview = mode === "preview";
   const d = draft?.details;
 
-  if (!result || info.level === "none") {
+  if (!formCheckHasWarning(formCheck) && (!result || info.level === "none")) {
     return (
       <Screen header={<ScreenHeader title="Duplicate Check" />}>
         <EmptyState icon="checkmark-circle-outline" title="No duplicate found" message="No existing survey matches this survey number." />
@@ -42,8 +49,8 @@ export default function DuplicateWarning() {
     );
   }
 
-  const exact = info.level === "duplicate";
-  const others = result.matches.slice(1);
+  const exact = info.level === "duplicate" || sameVillage.length > 0;
+  const others = result?.matches.slice(1) ?? [];
 
   const openExisting = (m: DuplicateCheckMatch) => {
     if (m.survey?.is_own) router.push({ pathname: "/survey/[id]", params: { id: m.survey.id } });
@@ -56,7 +63,7 @@ export default function DuplicateWarning() {
       footer={
         <View style={{ gap: 10 }}>
           {info.primary?.survey ? (
-            <AppButton title="View Existing Record" icon="eye-outline" onPress={() => openExisting(info.primary!)} />
+            <AppButton title="View Existing Survey" icon="eye-outline" onPress={() => openExisting(info.primary!)} />
           ) : null}
           <View style={styles.row}>
             <AppButton title={preview ? "Back to Form" : "Go Back"} variant="ghost" onPress={() => router.back()} style={{ flex: 1 }} />
@@ -71,15 +78,34 @@ export default function DuplicateWarning() {
         <Ionicons name="warning" size={30} color={exact ? colors.error : colors.warning} />
         <View style={{ flex: 1 }}>
           <AppText variant="bodyStrong" style={{ color: exact ? colors.error : "#8A5308" }}>
-            {exact ? "This Survey Number already exists in the system." : "A survey with this number exists nearby."}
+            {sameVillage.length
+              ? "A 1/14 record already exists for this survey number."
+              : exact ? "This Survey Number already exists in the system." : "A survey with this number exists nearby."}
           </AppText>
-          {d ? <AppText variant="caption">Survey No: {surveyNumberLabel(d.surveyNumber, d.subDivision || null)}</AppText> : null}
+          {land || d ? (
+            <AppText variant="caption">
+              Survey No: {land ? surveyNumberLabel(land.surveyNumber, land.subDivision || null) : surveyNumberLabel(d!.surveyNumber, d!.subDivision || null)}
+              {land ? ` • ${land.village}` : ""}
+            </AppText>
+          ) : null}
         </View>
       </Animated.View>
 
-      <AppText variant="heading" style={{ marginBottom: 10 }}>
-        Existing Record
-      </AppText>
+      {forms.length ? (
+        <View style={{ marginBottom: 12 }}>
+          <AppText variant="heading" style={{ marginBottom: 10 }}>
+            Existing 1/14 form{forms.length === 1 ? "" : "s"}
+          </AppText>
+          {forms.map((f) => (
+            <LandFormCard key={f.id} form={f} highlight={sameVillage.includes(f)} />
+          ))}
+        </View>
+      ) : null}
+      {info.primary ? (
+        <AppText variant="heading" style={{ marginBottom: 10 }}>
+          Existing field survey
+        </AppText>
+      ) : null}
       {info.primary ? (
         <Animated.View entering={FadeInDown.duration(300).delay(80)}>
           <ExistingRecordCard survey={info.primary.survey} matchType={info.primary.match_type} distance={info.primary.distance_meters} />

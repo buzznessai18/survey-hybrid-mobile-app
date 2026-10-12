@@ -12,15 +12,20 @@ export type FunctionName =
   | "get-survey"
   | "get-survey-map-data"
   | "get-reports"
+  | "get-analytics"
   | "search-surveys"
-  | "admin-users";
-
-/** Read-only endpoints that also serve no-login guests (public anon key only). */
-const GUEST_FUNCTIONS: FunctionName[] = ["search-surveys", "get-survey", "get-survey-map-data", "get-reports"];
+  | "admin-users"
+  | "review-duplicate"
+  | "farmers"
+  | "land-records"
+  | "schemes"
+  | "applications"
+  | "audit-logs"
+  | "export-data"
+  | "service-records";
 
 /**
- * POST a JSON body to an Edge Function with the signed-in user's JWT, or —
- * for guest-readable endpoints without a session — with the public anon key.
+ * POST a JSON body to an Edge Function with the signed-in user's JWT.
  * All survey functions accept POST (GET-capable ones read the same params).
  */
 export async function callFunction<T>(
@@ -29,9 +34,7 @@ export async function callFunction<T>(
   options: { timeoutMs?: number } = {},
 ): Promise<{ data: T; status: number }> {
   const { data: sessionData } = await supabase.auth.getSession();
-  if (!sessionData.session && !GUEST_FUNCTIONS.includes(name)) {
-    throw new ApiError("unauthorized", FRIENDLY_MESSAGES.unauthorized, 401);
-  }
+  if (!sessionData.session) throw new ApiError("unauthorized", FRIENDLY_MESSAGES.unauthorized, 401);
 
   const { data, error, response } = await supabase.functions.invoke<T>(name, {
     body,

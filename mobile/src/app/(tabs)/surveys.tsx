@@ -4,8 +4,11 @@ import { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, FlatList, RefreshControl, ScrollView, StyleSheet, TextInput, View } from "react-native";
 import { AppText } from "@/components/ui/AppText";
 import { Chip } from "@/components/ui/Chip";
+import { Segmented } from "@/components/ui/Segmented";
+import { FormsPane } from "@/features/records/FormsPane";
 import { IconButton } from "@/components/ui/IconButton";
 import { useTopInset } from "@/components/ui/Screen";
+import { useCanEditRecords } from "@/store/authStore";
 import { EmptyState, ErrorState, SurveyCardSkeleton } from "@/components/ui/States";
 import { SurveyCard, type SurveyCardData } from "@/components/survey/SurveyCard";
 import { queueCard, serverCard } from "@/features/surveys/cardData";
@@ -13,25 +16,47 @@ import { useMySurveys } from "@/features/surveys/useMySurveys";
 import { useStartSurvey } from "@/features/surveys/useStartSurvey";
 import { useUserQueue } from "@/features/sync/hooks";
 import { SyncService } from "@/services/sync/SyncService";
-import { useIsAdmin } from "@/store/authStore";
 import { colors, fonts, radius } from "@/theme";
 import { FLAGGED_DUPLICATE_STATUSES } from "@/types/api";
 import type { QueueItem } from "@/types/survey";
+import { matchesQueueSearch } from "@/utils/search";
 
 type Filter = "all" | "submitted" | "pending" | "duplicates";
 
-const matchesSearch = (q: QueueItem, term: string) => {
-  if (!term) return true;
-  const t = term.toLowerCase();
-  const d = q.details;
-  return [d.farmerName, d.farmerMobile, d.surveyNumber, d.subDivision].some((v) => v.toLowerCase().includes(t));
-};
 
-export default function MySurveysScreen() {
-  const params = useLocalSearchParams<{ filter?: Filter }>();
+/** Records: 1/14 forms and field surveys (incl. offline / pending sync). */
+export default function RecordsScreen() {
   const top = useTopInset();
+  const params = useLocalSearchParams<{ filter?: Filter; tab?: "forms" | "surveys" }>();
+  const [tab, setTab] = useState<"forms" | "surveys">(params.filter ? "surveys" : (params.tab ?? "forms"));
+  const [lastTab, setLastTab] = useState(params.tab);
+  if (params.tab !== lastTab) {
+    setLastTab(params.tab);
+    if (params.tab) setTab(params.tab);
+  }
   const startSurvey = useStartSurvey();
-  const isAdmin = useIsAdmin();
+  const canEdit = useCanEditRecords();
+  const header = (
+    <View style={styles.header}>
+      <AppText variant="title" accessibilityRole="header">Records</AppText>
+      {canEdit ? <IconButton icon="add-circle" size={30} color={colors.primary} label="New 1/14 form" onPress={() => startSurvey()} /> : null}
+    </View>
+  );
+  return (
+    <View style={[styles.root, { paddingTop: top }]}>
+      {header}
+      <View style={{ paddingHorizontal: 16, paddingBottom: 8 }}>
+        <Segmented value={tab} onChange={setTab} options={[{ value: "forms", label: "1/14 Forms" }, { value: "surveys", label: "Field Surveys" }]} />
+      </View>
+      {tab === "forms" ? <FormsPane /> : <SurveysPane />}
+    </View>
+  );
+}
+
+function SurveysPane() {
+  const params = useLocalSearchParams<{ filter?: Filter }>();
+  const startSurvey = useStartSurvey();
+  const canEdit = useCanEditRecords();
   const [filter, setFilter] = useState<Filter>(params.filter ?? "all");
   const [lastParam, setLastParam] = useState(params.filter);
   if (params.filter !== lastParam) {
@@ -48,7 +73,7 @@ export default function MySurveysScreen() {
   }, [searchInput]);
 
   const queue = useUserQueue();
-  const local = useMemo(() => queue.filter((q) => q.status !== "synced" && matchesSearch(q, search)), [queue, search]);
+  const local = useMemo(() => queue.filter((q) => q.status !== "synced" && matchesQueueSearch(q, search)), [queue, search]);
 
   const serverFilters = useMemo(
     () => ({
@@ -76,13 +101,7 @@ export default function MySurveysScreen() {
   const empty = !server.loading && rows.length === 0;
 
   return (
-    <View style={[styles.root, { paddingTop: top }]}>
-      <View style={styles.header}>
-        <AppText variant="title" accessibilityRole="header">
-          All Surveys
-        </AppText>
-        {isAdmin ? <IconButton icon="add-circle" size={30} color={colors.primary} label="New survey" onPress={startSurvey} /> : null}
-      </View>
+    <View style={{ flex: 1 }}>
 
       <View style={styles.search}>
         <Ionicons name="search" size={18} color={colors.muted} />
@@ -103,9 +122,7 @@ export default function MySurveysScreen() {
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
           <Chip label={`All${server.total !== null ? ` (${allCount})` : ""}`} selected={filter === "all"} onPress={() => setFilter("all")} />
           <Chip label="Submitted" selected={filter === "submitted"} onPress={() => setFilter("submitted")} />
-          {isAdmin ? (
-            <Chip label={`Pending (${local.length})`} selected={filter === "pending"} onPress={() => setFilter("pending")} />
-          ) : null}
+          {canEdit || local.length ? <Chip label={`Pending sync (${local.length})`} selected={filter === "pending"} onPress={() => setFilter("pending")} /> : null}
           <Chip label="Duplicates" selected={filter === "duplicates"} onPress={() => setFilter("duplicates")} />
         </ScrollView>
       </View>
@@ -156,9 +173,9 @@ export default function MySurveysScreen() {
             <EmptyState
               icon="clipboard-outline"
               title="No surveys yet"
-              message={isAdmin ? "Surveys you add will appear here." : "Surveys added by admins will appear here."}
-              actionTitle={isAdmin ? "New Survey" : undefined}
-              onAction={isAdmin ? startSurvey : undefined}
+              message="Field surveys captured with 1/14 forms appear here."
+              actionTitle={canEdit ? "New 1/14 Form" : undefined}
+              onAction={canEdit ? () => startSurvey() : undefined}
             />
           )
         }

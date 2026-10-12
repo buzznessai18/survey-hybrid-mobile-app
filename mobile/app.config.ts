@@ -9,7 +9,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   name: "Field Survey",
   slug: "field-survey",
   scheme: "fieldsurvey",
-  version: "1.2.0",
+  version: "1.5.0",
   orientation: "portrait",
   icon: "./assets/icon.png",
   userInterfaceStyle: "light",

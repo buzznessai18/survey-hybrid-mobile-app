@@ -1,6 +1,7 @@
 import { appConfig } from "@/config/env";
 import { ApiError, toApiError } from "@/services/api/errors";
 import { PhotoService } from "@/services/storage/PhotoService";
+import { FormService } from "@/services/records/RecordServices";
 import { SurveyService } from "@/services/surveys/SurveyService";
 import { supabase } from "@/services/supabase/client";
 import { useNetworkStore } from "@/store/networkStore";
@@ -8,7 +9,7 @@ import { selectUserItems, useQueueStore } from "@/store/queueStore";
 import { useSyncStore } from "@/store/syncStore";
 import type { CreateSurveyResponse } from "@/types/api";
 import type { QueueItem, SurveyDraft, SyncError, SyncErrorKind } from "@/types/survey";
-import { queueItemFromDraft, toCreatePayload } from "@/utils/serialization";
+import { queueItemFromDraft, toCreatePayload, toFormSubmitPayload } from "@/utils/serialization";
 
 /**
  * Offline-first submission pipeline.
@@ -84,8 +85,27 @@ async function runSync(id: string): Promise<SyncOutcome> {
       store().update(id, { photoPath });
     }
 
-    // 2. Submit (idempotent on id).
-    const response = await SurveyService.createSurvey(toCreatePayload(getItem(id) ?? initial, photoPath));
+    // 2. Submit (idempotent on the client ids). 1/14 form items create the
+    //    form + its field survey (when not skipped) in one transaction; legacy items just the survey.
+    const current = getItem(id) ?? initial;
+    let response: CreateSurveyResponse;
+    let formCode: string | undefined;
+    let formDbId: string | undefined;
+    if (current.formId) {
+      const res = await FormService.submit(toFormSubmitPayload(current, photoPath));
+      const s = res.surveys.find((x) => x.id === current.id) ?? res.surveys[0];
+      formCode = res.form.form_id;
+      formDbId = res.form.id;
+      response = {
+        created: res.created,
+        idempotent_replay: res.idempotent_replay,
+        survey: (s
+          ? { ...s, duplicate_check: { duplicate_found: s.duplicate_status === "duplicate", possible_duplicate: false, nearest_distance_meters: null, matches: [] } }
+          : undefined) as unknown as CreateSurveyResponse["survey"],
+      };
+    } else {
+      response = await SurveyService.createSurvey(toCreatePayload(current, photoPath));
+    }
 
     // 3. Only now is it safe to mark synced and free the local photo.
     const localPhoto = getItem(id)?.photoLocalUri;
@@ -95,10 +115,12 @@ async function runSync(id: string): Promise<SyncOutcome> {
       nextAttemptAt: 0,
       photoLocalUri: null,
       result: {
-        surveyCode: response.survey.survey_id,
-        duplicateStatus: response.survey.duplicate_status,
+        surveyCode: response.survey?.survey_id ?? "",
+        duplicateStatus: response.survey?.duplicate_status ?? "unique",
         idempotentReplay: response.idempotent_replay,
         syncedAt: new Date().toISOString(),
+        formCode,
+        formDbId,
       },
     });
     PhotoService.delete(localPhoto);

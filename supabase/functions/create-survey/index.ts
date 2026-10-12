@@ -18,8 +18,8 @@ const schema = z
   });
 
 serve(["POST"], async (req) => {
-  // 1-2. Authenticate and require an active admin (only admins create surveys).
-  const { profile, adminClient } = await requireUser(req, ["admin"]);
+  // 1-2. Authenticate: field survey users and admins create surveys.
+  const { profile, adminClient } = await requireUser(req, ["admin", "user"]);
 
   // 3. Validate.
   const input = parse(schema, await readParams(req));

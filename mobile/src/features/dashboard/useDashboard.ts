@@ -7,8 +7,8 @@ import { useCacheStore } from "@/store/cacheStore";
 import { useNetworkStore } from "@/store/networkStore";
 import { useSyncStore } from "@/store/syncStore";
 
-/** get-reports + latest surveys, with last-known values shown offline. */
-export function useDashboard() {
+/** get-reports + latest surveys (admins only), with last-known values shown offline. */
+export function useDashboard(enabled = true) {
   const userId = useAuthStore((s) => s.profile?.id);
   const isOnline = useNetworkStore((s) => s.isOnline);
   const lastSyncAt = useSyncStore((s) => s.lastSyncAt);
@@ -19,7 +19,7 @@ export function useDashboard() {
   const ownCache = cache.userId === userId;
 
   const load = useCallback(async () => {
-    if (!userId) return;
+    if (!userId || !enabled) return;
     setRefreshing(true);
     try {
       const [report, recent] = await Promise.all([
@@ -33,7 +33,7 @@ export function useDashboard() {
     } finally {
       setRefreshing(false);
     }
-  }, [userId]);
+  }, [userId, enabled]);
 
   // Reload on mount, when coming online and after each sync run.
   useEffect(() => {

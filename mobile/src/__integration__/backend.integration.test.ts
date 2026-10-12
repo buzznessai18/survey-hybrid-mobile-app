@@ -19,6 +19,7 @@ import { supabase } from "@/services/supabase/client";
 import { DuplicateService } from "@/services/surveys/DuplicateService";
 import { SurveyService } from "@/services/surveys/SurveyService";
 import { SyncService } from "@/services/sync/SyncService";
+import { ApplicationService, AuditService, ExportService, FarmerService, FormService, SchemeService } from "@/services/records/RecordServices";
 import { useNetworkStore } from "@/store/networkStore";
 import { useQueueStore } from "@/store/queueStore";
 import type { SurveyDraft } from "@/types/survey";
@@ -116,13 +117,6 @@ describeIf("app services against the real backend", () => {
   it("rejects a wrong password with a friendly error", async () => {
     await expect(AuthService.signIn({ portal: "admin", method: "email", identifier: email, password: "wrong" })).rejects.toMatchObject({
       kind: "invalid_credentials",
-    });
-    await AuthService.signIn({ portal: "admin", method: "email", identifier: email, password });
-  });
-
-  it("an admin account cannot enter through the User option", async () => {
-    await expect(AuthService.signIn({ portal: "user", method: "email", identifier: email, password })).rejects.toMatchObject({
-      kind: "use_admin_login",
     });
     await AuthService.signIn({ portal: "admin", method: "email", identifier: email, password });
   });
@@ -237,24 +231,87 @@ describeIf("app services against the real backend", () => {
     expect(res.report.duplicate_count).toBeGreaterThanOrEqual(1);
   });
 
-  it("a no-login guest (no session at all) browses the admin's surveys read-only", async () => {
-    const queued = useQueueStore.getState().items[firstId];
+  it("app services: 1/14 form + survey, farmer profile, schemes, applications and exports", async () => {
+    const crops = await CropService.listActive();
+    const paddy = crops.find((c) => c.name === "Paddy") ?? crops[0];
+    const formId = globalThis.crypto.randomUUID();
+    const surveyId = globalThis.crypto.randomUUID();
+    const land = {
+      village: "Aldona", taluka: "Bardez" as const, surveyNumber: `${SN}F`, subDivision: "1", occupantNames: `App Farmer ${run}`, tenantName: "",
+      areaSqM: "6000", landClass: "paddy" as const, assessmentRs: "20", irrigation: "well" as const, remarks: "",
+      kharifCropId: paddy.id, rabiCropId: "",
+    };
+    const farmer = { id: null, name: `App Farmer ${run}`, mobile: "9000055501", fatherName: "", gender: "" as const, category: "sc" as const, village: "Aldona", taluka: "Bardez" as const };
+    const outcome = await SyncService.submitDraft(
+      draft({ id: surveyId, formId, farmer, land, details: { ...draft().details!, cropId: paddy.id, surveyNumber: land.surveyNumber, subDivision: "1" } }),
+      userId,
+    );
+    expect(outcome.kind).toBe("synced");
+    const synced = useQueueStore.getState().items[surveyId];
+    expect(synced.result?.formCode).toMatch(/^LR-\d{6,}$/);
+
+    const found = await FarmerService.search({ q: `${land.surveyNumber}/1` });
+    const hit = found.data.find((f) => f.name === farmer.name)!;
+    expect(hit.form_count).toBe(1);
+    const profile = await FarmerService.get(hit.id);
+    expect(profile.forms[0].form_id).toBe(synced.result?.formCode);
+    expect(profile.surveys[0].form_id).toBe(synced.result?.formCode);
+
+    const dup = await FormService.checkDuplicate({ survey_number: land.surveyNumber, sub_division: "1", village: "Aldona" });
+    expect(dup.same_village_forms).toBe(1);
+
+    const scheme = await SchemeService.upsert({ code: `APP-${run.toUpperCase()}`.replace(/[^A-Z0-9-]/g, "X"), name: `App scheme ${run}`, rules: { min_land_sq_m: 5000, eligible_categories: ["sc"] } });
+    const elig = (await SchemeService.eligibility(hit.id)).find((e) => e.scheme_id === scheme.id)!;
+    expect(elig.eligible).toBe(true);
+    expect(scheme.category).toBe("subsidy");
+    const app = await ApplicationService.upsert({ farmer_id: hit.id, scheme_id: scheme.id, status: "approved", amount_rs: 1000 });
+    expect(app.application.application_no).toMatch(/^SA-/);
+    const withBenefit = await FarmerService.get(hit.id);
+    expect(withBenefit.applications.map((a) => [a.scheme_category, a.status])).toEqual([["subsidy", "approved"]]);
+    const byFormNo = await FarmerService.search({ q: synced.result!.formCode! });
+    expect(byFormNo.data.find((f) => f.id === hit.id)?.benefits_pending).toBe(1);
+
+    const exp = await ExportService.fetch({ dataset: "forms", taluka: "Bardez" });
+    expect(exp.rows.some((r) => r.form_id === synced.result?.formCode)).toBe(true);
+    const audit = await AuditService.list({ entity_id: synced.result?.formDbId });
+    expect(audit.data.some((a) => a.action === "form_created")).toBe(true);
+  });
+
+  it("a company user can search and view everything, but every write is refused", async () => {
+    const companyEmail = `app-company-${run}@example.test`;
+    const admin = createClient(URL, SERVICE_KEY, { auth: { persistSession: false } });
+    const { data, error } = await admin.auth.admin.createUser({ email: companyEmail, password, email_confirm: true, user_metadata: { full_name: `Company ${run}` } });
+    if (error) throw error;
+    await admin.from("profiles").update({ role: "user", status: "active" }).eq("id", data.user.id);
+    try {
+      const { profile } = await AuthService.signIn({ portal: "user", method: "email", identifier: companyEmail, password });
+      expect(profile.role).toBe("user");
+      const found = await FarmerService.search({ q: `${SN}F/` });
+      expect(found.data.length).toBe(1);
+      const farmerProfile = await FarmerService.get(found.data[0].id);
+      expect(farmerProfile.applications.length).toBe(1);
+      expect((await FormService.list({})).pagination.total).toBeGreaterThan(0);
+      expect((await SchemeService.list()).length).toBeGreaterThan(0);
+
+      await expect(FarmerService.upsert({ id: found.data[0].id, name: "X", mobile: "9000055501" })).rejects.toMatchObject({ kind: "forbidden" });
+      await expect(FormService.setStatus(farmerProfile.forms[0].id, "verified")).rejects.toMatchObject({ kind: "forbidden" });
+      await expect(SchemeService.upsert({ code: "NOPE", name: "x", rules: {} })).rejects.toMatchObject({ kind: "forbidden" });
+      await expect(ApplicationService.upsert({ farmer_id: found.data[0].id, scheme_id: farmerProfile.applications[0].scheme_id, status: "disbursed" }))
+        .rejects.toMatchObject({ kind: "forbidden" });
+      const queued = draft({ id: globalThis.crypto.randomUUID() });
+      const outcome = await SyncService.submitDraft(queued, data.user.id);
+      expect(outcome.kind).not.toBe("synced");
+    } finally {
+      await supabase.auth.signOut({ scope: "local" });
+      await AuthService.signIn({ portal: "admin", method: "email", identifier: email, password });
+      await admin.auth.admin.deleteUser(data.user.id);
+    }
+  });
+
+  it("without a session every function call is rejected (login required)", async () => {
     await supabase.auth.signOut({ scope: "local" });
-    expect((await supabase.auth.getSession()).data.session).toBeNull();
-
-    const seen = await SurveyService.searchSurveys({ search: SN, include_photo_urls: true });
-    expect(seen.pagination.total).toBe(2);
-    expect(seen.data.every((s) => s.collected_by === userId && s.collected_by_name)).toBe(true);
-    expect(seen.data.every((s) => /^\*+\d{4}$/.test(s.farmer_mobile ?? ""))).toBe(true);
-
-    const detail = await SurveyService.getSurvey(firstId);
-    expect(detail.farmer_mobile).toBe("******3210");
-    expect(detail.photo_url).toContain("/storage/v1/object/sign/field-photos/");
-    expect((await ReportService.getMyReport()).scope).toBe("all");
-
-    const blocked = toCreatePayload({ ...queued, id: globalThis.crypto.randomUUID() }, null);
-    await expect(SurveyService.createSurvey(blocked)).rejects.toMatchObject({ kind: "unauthorized" });
-    await expect(SurveyService.updateSurvey({ id: firstId, notes: "hack" })).rejects.toMatchObject({ kind: "unauthorized" });
+    await expect(SurveyService.searchSurveys({ search: SN })).rejects.toMatchObject({ kind: "unauthorized" });
+    await expect(FarmerService.search({ q: "a" })).rejects.toMatchObject({ kind: "unauthorized" });
     await AuthService.signIn({ portal: "admin", method: "email", identifier: email, password });
   });
 

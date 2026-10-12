@@ -1,7 +1,7 @@
 import type { Session } from "@supabase/supabase-js";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { AuthError, AuthService } from "@/services/auth/AuthService";
+import { AuthError, AuthService, canUseApp } from "@/services/auth/AuthService";
 import type { Profile } from "@/types/api";
 import type { LoginValues } from "@/utils/validation";
 import { persistStorage } from "./storage";
@@ -16,9 +16,6 @@ interface AuthState {
   notice: string | null;
   initialize: () => Promise<void>;
   signIn: (values: LoginValues) => Promise<void>;
-  /** Browse read-only without an account (anonymous session). */
-  enterGuest: () => Promise<void>;
-  /** Admin logout returns to guest browsing. */
   signOut: (notice?: string) => Promise<void>;
   refreshProfile: () => Promise<void>;
   clearNotice: () => void;
@@ -39,8 +36,7 @@ export const useAuthStore = create<AuthState>()(
       async initialize() {
         const session = await AuthService.getSession();
         if (!session) {
-          // No account needed: open straight into read-only browsing.
-          await get().enterGuest();
+          set({ status: "signedOut", session: null, profile: null });
           return;
         }
         const cached = get().profile;
@@ -68,21 +64,12 @@ export const useAuthStore = create<AuthState>()(
         set({ status: "signedIn", session, profile, notice: null });
       },
 
-      /**
-       * No account and no Supabase session: read requests go to the Edge
-       * Functions with only the public anon key, and the backend serves them
-       * as a read-only guest. Works offline (cached data is shown).
-       */
-      async enterGuest() {
-        set({ status: "signedIn", session: null, profile: GUEST_PROFILE });
-      },
+
 
       async signOut(notice) {
         // Update state first so the SIGNED_OUT listener doesn't treat this as an expiry.
         set({ status: "signedOut", session: null, profile: null, notice: notice ?? null });
         await AuthService.signOut();
-        // Back to read-only browsing unless this was a forced sign-out.
-        if (!notice) await get().enterGuest();
       },
 
       async refreshProfile() {
@@ -90,7 +77,7 @@ export const useAuthStore = create<AuthState>()(
         if (!session) return;
         try {
           const profile = await AuthService.loadProfile(session.user.id);
-          if (profile.status !== "active" || (profile.role !== "admin" && profile.role !== "user")) {
+          if (profile.status !== "active" || !canUseApp(profile.role)) {
             await get().signOut("Your account is no longer active. Please contact your administrator.");
             return;
           }
@@ -112,17 +99,6 @@ export const useAuthStore = create<AuthState>()(
   ),
 );
 
-/** Local stand-in for no-login visitors; the backend applies the same read-only rules. */
-export const GUEST_PROFILE: Profile = {
-  id: "guest",
-  full_name: "Guest",
-  mobile: null,
-  role: "user",
-  status: "active",
-  supervisor_id: null,
-  is_guest: true,
-};
-
 /** Minimal profile when the app starts offline with a valid stored session. */
 function offlineProfile(session: Session): Profile {
   const meta = session.user.user_metadata as { full_name?: string } | undefined;
@@ -130,8 +106,8 @@ function offlineProfile(session: Session): Profile {
     id: session.user.id,
     full_name: meta?.full_name ?? "User",
     mobile: session.user.phone ? session.user.phone : null,
-    // Least privilege until the real profile can be loaded.
-    role: "user",
+    // Least privilege until the real profile can be loaded (can't reach admin screens offline).
+    role: "field_surveyor",
     status: "active",
     supervisor_id: null,
   };
@@ -154,8 +130,9 @@ export function startAuthListener(): () => void {
   });
 }
 
-/** True when the signed-in account is an admin (can create/edit surveys and manage users). */
+/** True when the signed-in account is an admin (also manages users and sees the dashboard, reports and audit history). */
 export const useIsAdmin = () => useAuthStore((s) => s.profile?.role === "admin");
 
-/** True for no-login visitors (read-only guest session). */
-export const useIsGuest = () => useAuthStore((s) => !!s.profile?.is_guest);
+/** Admins and company users add and edit records; the legacy field_surveyor role is read-only. */
+export const canEditRecords = (role: string | null | undefined) => role === "admin" || role === "user";
+export const useCanEditRecords = () => useAuthStore((s) => canEditRecords(s.profile?.role));

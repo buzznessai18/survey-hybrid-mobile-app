@@ -17,13 +17,14 @@ import { ExistingRecordCard } from "@/components/survey/ExistingRecordCard";
 import { useSurveyDetail } from "@/features/surveys/useSurveyDetail";
 import { PhotoService } from "@/services/storage/PhotoService";
 import { SyncService } from "@/services/sync/SyncService";
-import { useAuthStore } from "@/store/authStore";
+import { canEditRecords, useAuthStore } from "@/store/authStore";
 import { useDraftStore } from "@/store/draftStore";
 import { useNetworkStore } from "@/store/networkStore";
 import { useQueueStore } from "@/store/queueStore";
 import { colors, radius } from "@/theme";
 import type { ReviewStatus, SurveyDetail } from "@/types/api";
 import type { QueueItem } from "@/types/survey";
+import { queueSummary } from "@/utils/serialization";
 import { formatDateTime, formatShortDate } from "@/utils/date";
 import { DUPLICATE_REASON_LABELS, formatArea, formatCoord, surveyNumberLabel } from "@/utils/format";
 import { normalizeMobile } from "@/utils/mobile";
@@ -49,7 +50,8 @@ const REVIEW_LABEL: Record<ReviewStatus, { label: string; tone: "warning" | "err
 
 function ServerSurvey({ id }: { id: string }) {
   const { survey, loading, error, reload } = useSurveyDetail(id);
-  const isAdmin = useAuthStore((s) => s.profile?.role === "admin");
+  const me = useAuthStore((s) => s.profile);
+  const canEdit = canEditRecords(me?.role);
 
   if (loading && !survey) {
     return (
@@ -72,8 +74,6 @@ function ServerSurvey({ id }: { id: string }) {
   }
 
   const status = serverStatusView(survey);
-  // Admins can edit any survey; users are read-only.
-  const canEdit = isAdmin;
 
   return (
     <Screen
@@ -138,6 +138,15 @@ function ServerSurvey({ id }: { id: string }) {
           style={{ height: 220, marginTop: 8 }}
         />
 
+        {canEdit && survey.duplicate_check.matches.length > 0 ? (
+          <AppButton
+            title="Compare & review duplicates"
+            icon="git-compare-outline"
+            variant="secondary"
+            style={{ marginTop: 16 }}
+            onPress={() => router.push({ pathname: "/admin/compare", params: { id: survey.id } })}
+          />
+        ) : null}
         <DuplicateSection survey={survey} />
       </Animated.View>
     </Screen>
@@ -194,6 +203,7 @@ function LocalSurvey({ item }: { item: QueueItem }) {
   const [busy, setBusy] = useState(false);
   const status = queueStatusView(item.status);
   const d = item.details;
+  const sum = queueSummary(item);
   const needsEdit = item.status === "sync_failed" && (item.lastError?.kind === "validation" || item.lastError?.kind === "conflict");
 
   const retry = async () => {
@@ -204,7 +214,7 @@ function LocalSurvey({ item }: { item: QueueItem }) {
 
   const editAndResubmit = () => {
     useDraftStore.getState().loadFromQueueItem(item);
-    router.push("/survey/new/details");
+    router.push(item.details ? "/survey/new/details" : "/survey/new/review");
   };
 
   const discard = () =>
@@ -274,19 +284,31 @@ function LocalSurvey({ item }: { item: QueueItem }) {
         </View>
       </View>
 
-      <PhotoPreview uri={item.photoLocalUri} height={200} style={{ marginBottom: 14 }} />
-      <AppCard>
-        <InfoRow label="Farmer Name" value={d.farmerName} />
-        <InfoRow label="Mobile Number" value={normalizeMobile(d.farmerMobile)} />
-        <InfoRow label="Crop" value={item.cropName ?? "—"} />
-        <InfoRow label="Area" value={formatArea(d.area, d.areaUnit)} />
-        <InfoRow label="Survey Number" value={surveyNumberLabel(d.surveyNumber, d.subDivision || null)} />
-        <InfoRow label="Sub-Division" value={d.subDivision || "—"} />
-        <InfoRow label="Date of Visit" value={formatShortDate(d.visitDate)} />
-        {item.duplicateReason ? <InfoRow label="Duplicate reason" value={DUPLICATE_REASON_LABELS[item.duplicateReason]} /> : null}
-        <InfoRow label="Location" value={`${formatCoord(item.location.latitude)}, ${formatCoord(item.location.longitude)}`} />
-        <InfoRow label="GPS accuracy" value={`${Math.round(item.location.accuracy)} m`} last />
-      </AppCard>
+      {d && item.location ? (
+        <>
+          <PhotoPreview uri={item.photoLocalUri} height={200} style={{ marginBottom: 14 }} />
+          <AppCard>
+            <InfoRow label="Farmer Name" value={d.farmerName} />
+            <InfoRow label="Mobile Number" value={normalizeMobile(d.farmerMobile)} />
+            <InfoRow label="Crop" value={item.cropName ?? "—"} />
+            <InfoRow label="Area" value={formatArea(d.area, d.areaUnit)} />
+            <InfoRow label="Survey Number" value={surveyNumberLabel(d.surveyNumber, d.subDivision || null)} />
+            <InfoRow label="Sub-Division" value={d.subDivision || "—"} />
+            <InfoRow label="Date of Visit" value={formatShortDate(d.visitDate)} />
+            {item.duplicateReason ? <InfoRow label="Duplicate reason" value={DUPLICATE_REASON_LABELS[item.duplicateReason]} /> : null}
+            <InfoRow label="Location" value={`${formatCoord(item.location.latitude)}, ${formatCoord(item.location.longitude)}`} />
+            <InfoRow label="GPS accuracy" value={`${Math.round(item.location.accuracy)} m`} last />
+          </AppCard>
+        </>
+      ) : (
+        <AppCard>
+          <InfoRow label="Farmer Name" value={sum.farmerName} />
+          <InfoRow label="Mobile Number" value={normalizeMobile(sum.farmerMobile)} />
+          <InfoRow label="Survey Number" value={surveyNumberLabel(sum.surveyNumber, sum.subDivision || null)} />
+          <InfoRow label="Village" value={item.land ? `${item.land.village}, ${item.land.taluka}` : "—"} />
+          <InfoRow label="Field survey" value="Not included (location or crop skipped)" last />
+        </AppCard>
+      )}
     </Screen>
   );
 }

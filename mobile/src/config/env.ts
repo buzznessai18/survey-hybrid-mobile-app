@@ -9,6 +9,10 @@ export const env = {
   supabaseUrl,
   supabaseAnonKey,
   defaultCountryCode: process.env.EXPO_PUBLIC_DEFAULT_COUNTRY_CODE ?? "91",
+  /** Heading printed on farmer receipts (organisation name). */
+  receiptOrgName: process.env.EXPO_PUBLIC_RECEIPT_ORG_NAME || "Field Survey",
+  /** Optional second line under the heading (address / phone). */
+  receiptOrgSubtitle: process.env.EXPO_PUBLIC_RECEIPT_ORG_SUBTITLE ?? "",
   isConfigured: supabaseUrl.length > 0 && supabaseAnonKey.length > 0,
 };
 

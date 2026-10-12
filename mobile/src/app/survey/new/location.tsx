@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Alert, StyleSheet, View } from "react-native";
 import Animated, { FadeIn, FadeInDown } from "react-native-reanimated";
 import { AppButton } from "@/components/ui/AppButton";
+import { SkipButton } from "@/components/survey/SkipButton";
 import { AppCard } from "@/components/ui/AppCard";
 import { AppText } from "@/components/ui/AppText";
 import { ProgressIndicator } from "@/components/ui/ProgressIndicator";
@@ -95,9 +96,20 @@ export default function LocationStep() {
     <Screen
       header={
         <>
-          <ScreenHeader title="New Field Survey" />
+          <ScreenHeader
+            title="New 1/14 Form"
+            right={
+              <SkipButton
+                onPress={() => {
+                  // No GPS means no field survey, so photo and crop are not asked for.
+                  setLocation(null);
+                  router.push("/survey/new/review");
+                }}
+              />
+            }
+          />
           <View style={styles.progress}>
-            <ProgressIndicator current={2} />
+            <ProgressIndicator current={3} />
           </View>
         </>
       }

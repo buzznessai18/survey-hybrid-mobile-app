@@ -448,5 +448,29 @@ verify_jwt = true
 [functions.get-reports]
 verify_jwt = true
 
+[functions.get-analytics]
+verify_jwt = true
+
 [functions.admin-users]
+verify_jwt = true
+
+[functions.farmers]
+verify_jwt = true
+
+[functions.land-records]
+verify_jwt = true
+
+[functions.schemes]
+verify_jwt = true
+
+[functions.applications]
+verify_jwt = true
+
+[functions.audit-logs]
+verify_jwt = true
+
+[functions.export-data]
+verify_jwt = true
+
+[functions.service-records]
 verify_jwt = true

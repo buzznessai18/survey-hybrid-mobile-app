@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { View } from "react-native";
 import { AppButton } from "@/components/ui/AppButton";
+import { RadioOption } from "@/components/forms/RadioOption";
 import { AppInput } from "@/components/ui/AppInput";
 import { AppText } from "@/components/ui/AppText";
 import { Screen } from "@/components/ui/Screen";
@@ -14,12 +15,12 @@ import { colors, radius } from "@/theme";
 import { toE164 } from "@/utils/mobile";
 import { newUserSchema, type NewUserValues } from "@/utils/validation";
 
-/** Admin-only: create another admin account (sign-up is closed; viewers need no account). */
+/** Admin-only: create a company user or admin (public sign-up is closed). */
 export default function AddUser() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const { control, handleSubmit, formState } = useForm<NewUserValues>({
     resolver: zodResolver(newUserSchema),
-    defaultValues: { fullName: "", role: "admin", mobile: "", email: "", password: "" },
+    defaultValues: { fullName: "", role: "user", mobile: "", email: "", password: "" },
   });
 
   const onSave = handleSubmit(async (v) => {
@@ -40,8 +41,8 @@ export default function AddUser() {
 
   return (
     <Screen
-      header={<ScreenHeader title="Add Admin" />}
-      footer={<AppButton title="Create Admin" icon="person-add-outline" loading={formState.isSubmitting} loadingTitle="Creating…" onPress={onSave} />}
+      header={<ScreenHeader title="Add User" />}
+      footer={<AppButton title="Create Account" icon="person-add-outline" loading={formState.isSubmitting} loadingTitle="Creating…" onPress={onSave} />}
     >
       {saveError ? (
         <View style={{ backgroundColor: colors.errorSoft, padding: 12, borderRadius: radius.md, marginBottom: 14 }} accessibilityRole="alert">
@@ -51,12 +52,17 @@ export default function AddUser() {
         </View>
       ) : null}
 
-      <View style={{ backgroundColor: colors.infoSoft, padding: 12, borderRadius: radius.md, marginBottom: 16 }}>
-        <AppText variant="label" style={{ color: colors.info }}>
-          New admins can add and edit surveys and manage accounts. Everyone else uses the app without an account.
-        </AppText>
-      </View>
-
+      <Controller
+        control={control}
+        name="role"
+        render={({ field }) => (
+          <View accessibilityRole="radiogroup" style={{ marginBottom: 8 }}>
+            <AppText variant="label" style={{ marginBottom: 8 }}>Account type</AppText>
+            <RadioOption label="Regular user — adds, searches and views records, prints receipts" selected={field.value === "user"} onPress={() => field.onChange("user")} />
+            <RadioOption label="Admin — everything, plus deleting records, users, reports & audit history" selected={field.value === "admin"} onPress={() => field.onChange("admin")} />
+          </View>
+        )}
+      />
       <Controller
         control={control}
         name="fullName"

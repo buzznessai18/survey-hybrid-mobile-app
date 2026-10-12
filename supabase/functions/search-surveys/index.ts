@@ -2,10 +2,11 @@
 // Search across surveys visible to the caller (RLS-scoped): admins and
 // read-only users see all surveys, supervisors their team. Admins can export CSV.
 import { requireViewer } from "../_shared/auth.ts";
+import { surveyNumberFilter } from "../_shared/records.ts";
 import { config } from "../_shared/config.ts";
 import { corsHeaders } from "../_shared/cors.ts";
 import { dbError, HttpError, json, readParams, serve } from "../_shared/http.ts";
-import { formatSurvey, LIST_COLUMNS, maskMobile, signPhotoUrls, viewerSeesMaskedMobiles } from "../_shared/surveys.ts";
+import { formatSurvey, LIST_COLUMNS, signPhotoUrls } from "../_shared/surveys.ts";
 import {
   DUPLICATE_STATUSES, isoDate, likePattern, listOf, normalizeCode, normalizeMobile, pagination,
   paginationMeta, parse, rangeFor, SUBMISSION_STATUSES, uuid, z,
@@ -55,8 +56,10 @@ serve(["GET", "POST"], async (req) => {
 
   if (p.search) {
     const like = likePattern(p.search);
+    const snFilter = surveyNumberFilter(p.search);
     query = query.or(
-      `farmer_name.ilike.${like},farmer_mobile.ilike.${like},survey_number.ilike.${like},survey_id.ilike.${like}`,
+      `farmer_name.ilike.${like},farmer_mobile.ilike.${like},survey_number.ilike.${like},survey_id.ilike.${like}` +
+        (snFilter ? `,${snFilter}` : ""),
     );
   }
   if (p.farmer_name) query = query.ilike("farmer_name", likePattern(p.farmer_name));
@@ -96,13 +99,8 @@ serve(["GET", "POST"], async (req) => {
   // deno-lint-ignore no-explicit-any
   const rows = (data ?? []) as any[];
   const photos = p.include_photo_urls ? await signPhotoUrls(adminClient, rows.map((r) => r.photo_path)) : undefined;
-  const mask = viewerSeesMaskedMobiles(profile);
   return json({
-    data: rows.map((r) => {
-      const row = formatSurvey(r, photos);
-      if (mask) row.farmer_mobile = maskMobile(row.farmer_mobile);
-      return row;
-    }),
+    data: rows.map((r) => formatSurvey(r, photos)),
     pagination: paginationMeta(p.page, p.page_size, count),
   });
 });

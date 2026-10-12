@@ -14,6 +14,7 @@ import { useTopInset } from "@/components/ui/Screen";
 import { PhotoService } from "@/services/storage/PhotoService";
 import { useDraftStore } from "@/store/draftStore";
 import { useQueueStore } from "@/store/queueStore";
+import { SkipButton } from "@/components/survey/SkipButton";
 import { colors, fonts, radius } from "@/theme";
 import type { CapturedPhoto } from "@/types/survey";
 
@@ -79,7 +80,15 @@ export default function PhotoStep() {
       PhotoService.delete(old);
     }
     setPhoto(preview);
-    router.push("/survey/new/review");
+    router.push("/survey/new/details");
+  };
+
+  const skip = () => {
+    const old = draft?.photo?.uri;
+    if (preview && preview.uri !== old) PhotoService.delete(preview.uri);
+    if (old && !Object.values(useQueueStore.getState().items).some((i) => i.photoLocalUri === old)) PhotoService.delete(old);
+    setPhoto(null);
+    router.push("/survey/new/details");
   };
 
   const header = (
@@ -88,7 +97,9 @@ export default function PhotoStep() {
       <AppText style={styles.headerTitle} accessibilityRole="header">
         Take Field Photograph
       </AppText>
-      <View style={{ width: 44 }} />
+      <View style={{ minWidth: 44, alignItems: "flex-end" }}>
+        <SkipButton onPress={skip} color={colors.white} />
+      </View>
     </View>
   );
 

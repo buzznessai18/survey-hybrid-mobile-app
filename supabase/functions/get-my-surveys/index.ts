@@ -22,7 +22,7 @@ const schema = z.object({
 });
 
 serve(["GET", "POST"], async (req) => {
-  const { profile, userClient, adminClient } = await requireUser(req, ["admin", "field_surveyor"]);
+  const { profile, userClient, adminClient } = await requireUser(req, ["admin", "user", "field_surveyor"]);
   const p = parse(schema, await readParams(req));
 
   let query = userClient

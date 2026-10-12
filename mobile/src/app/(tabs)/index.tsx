@@ -1,147 +1,187 @@
-import { router } from "expo-router";
-import { useMemo } from "react";
-import { RefreshControl, StyleSheet, View } from "react-native";
-import Animated, { FadeInDown } from "react-native-reanimated";
+import { Ionicons } from "@expo/vector-icons";
+import { router, type Href } from "expo-router";
+import type { ComponentProps } from "react";
+import { useState } from "react";
+import { Pressable, RefreshControl, StyleSheet, TextInput, View } from "react-native";
+import { ServiceRecordCard } from "@/components/records/ServiceRecordCard";
 import { AppButton } from "@/components/ui/AppButton";
 import { AppText } from "@/components/ui/AppText";
 import { Avatar } from "@/components/ui/Avatar";
 import { Screen } from "@/components/ui/Screen";
 import { SectionHeader } from "@/components/ui/SectionHeader";
-import { StatCard } from "@/components/ui/StatCard";
-import { EmptyState, SurveyCardSkeleton } from "@/components/ui/States";
-import { SyncStatus } from "@/components/ui/SyncStatus";
-import { SurveyCard } from "@/components/survey/SurveyCard";
-import { useDashboard } from "@/features/dashboard/useDashboard";
-import { queueCard, serverCard } from "@/features/surveys/cardData";
-import { useStartSurvey } from "@/features/surveys/useStartSurvey";
-import { useUnsyncedCount, useUserQueue } from "@/features/sync/hooks";
-import { useAuthStore, useIsAdmin, useIsGuest } from "@/store/authStore";
-import { colors } from "@/theme";
-import { formatDateTime, formatLongDate, greeting } from "@/utils/date";
+import { EmptyState, ErrorState, SurveyCardSkeleton } from "@/components/ui/States";
+import { useRemote } from "@/features/common/useRemote";
+import { useUnsyncedCount } from "@/features/sync/hooks";
+import { ServiceRecordService } from "@/services/records/ServiceRecordService";
+import { useAuthStore, useCanEditRecords, useIsAdmin } from "@/store/authStore";
+import { useNetworkStore } from "@/store/networkStore";
+import { colors, fonts, radius, shadow } from "@/theme";
+import { formatLongDate, greeting } from "@/utils/date";
 import { firstName } from "@/utils/format";
 
+/** Home: add a record, search records, the latest records, and (admins) reports & users. */
 export default function HomeScreen() {
   const profile = useAuthStore((s) => s.profile);
-  const { report, recent, refreshing, reload, updatedAt } = useDashboard();
-  const queue = useUserQueue();
-  const { pending, failed } = useUnsyncedCount();
-  const startSurvey = useStartSurvey();
   const isAdmin = useIsAdmin();
-  const isGuest = useIsGuest();
-
-  // Local, not-yet-synced surveys first, then the latest server records.
-  const recentCards = useMemo(() => {
-    const local = queue.filter((q) => q.status !== "synced").map((q) => ({ card: queueCard(q), id: q.id }));
-    const server = recent.map((s) => ({ card: serverCard(s), id: s.id }));
-    return [...local, ...server].slice(0, 5);
-  }, [queue, recent]);
-
-  const stat = (n: number | undefined) => (n === undefined ? "–" : n);
+  const canEdit = useCanEditRecords();
+  const isOnline = useNetworkStore((s) => s.isOnline);
+  const recent = useRemote(() => ServiceRecordService.list({ page_size: 5 }), isOnline ? "on" : "off");
+  const { pending, failed } = useUnsyncedCount();
+  const waiting = pending + failed;
 
   return (
     <Screen
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={reload} tintColor={colors.primary} />}
+      refreshControl={<RefreshControl refreshing={recent.loading && !!recent.data} onRefresh={recent.reload} tintColor={colors.primary} />}
       contentStyle={{ paddingTop: 12 }}
     >
       <View style={styles.header}>
         <View style={{ flex: 1 }}>
           <AppText variant="caption">{greeting()},</AppText>
-          <AppText variant="display" numberOfLines={1}>
-            {isGuest ? "Welcome" : firstName(profile?.full_name)} 👋
-          </AppText>
-          <AppText variant="caption" style={{ marginTop: 2 }}>
-            {formatLongDate()}
-          </AppText>
+          <AppText variant="display" numberOfLines={1}>{firstName(profile?.full_name)} 👋</AppText>
+          <AppText variant="caption" style={{ marginTop: 2 }}>{formatLongDate()}</AppText>
         </View>
-        <Avatar name={isGuest ? "Guest" : profile?.full_name} onPress={() => router.push(isGuest ? "/login" : "/profile")} />
+        <Avatar name={profile?.full_name} onPress={() => router.push("/profile")} />
       </View>
-
-      <View style={{ marginTop: 12, marginBottom: 16, flexDirection: "row", gap: 8, alignItems: "center" }}>
-        <SyncStatus onPress={isAdmin ? () => router.push("/profile/offline") : undefined} />
+      <View style={styles.pills}>
         <View style={styles.rolePill}>
-          <AppText variant="small" style={{ color: colors.primaryDark }}>
-            {isAdmin ? "Admin" : isGuest ? "Guest • read-only" : "Viewer"}
-          </AppText>
+          <AppText variant="small" style={{ color: colors.primaryDark }}>{isAdmin ? "Admin" : canEdit ? "Regular user" : "View only"}</AppText>
         </View>
       </View>
 
-      <Animated.View entering={FadeInDown.duration(350)} style={styles.grid}>
-        <View style={styles.gridRow}>
-          <StatCard value={stat(report?.today_surveys)} label="Added Today" tone="success" icon="checkmark-done" />
-          {isAdmin ? (
-            <StatCard
-              value={pending + failed}
-              label="Pending Sync"
-              tone="warning"
-              icon="cloud-upload-outline"
-              onPress={() => router.push("/profile/offline")}
-            />
-          ) : (
-            <StatCard value={stat(report?.by_crop.length)} label="Crops Surveyed" tone="warning" icon="leaf-outline" />
-          )}
-        </View>
-        <View style={styles.gridRow}>
-          <StatCard
-            value={stat(report?.duplicate_count)}
-            label="Duplicates"
-            tone="error"
-            icon="copy-outline"
-            onPress={() => router.push({ pathname: "/surveys", params: { filter: "duplicates" } })}
-          />
-          <StatCard
-            value={stat(report?.total_surveys)}
-            label="Total Surveys"
-            tone="info"
-            icon="layers-outline"
-            onPress={() => router.push("/surveys")}
-          />
-        </View>
-      </Animated.View>
-      {updatedAt && !refreshing && report ? (
-        <AppText variant="small" style={{ marginTop: 6 }}>
-          Updated {formatDateTime(updatedAt)}
-        </AppText>
+      {canEdit ? (
+        <Pressable
+          onPress={() => router.push("/record/new")}
+          style={({ pressed }) => [styles.addCard, pressed && { backgroundColor: colors.primaryDark }]}
+          accessibilityRole="button"
+          accessibilityLabel="Add record"
+          accessibilityHint="Record farmer, land and equipment or service details"
+        >
+          <View style={styles.addIcon}>
+            <Ionicons name="add" size={30} color={colors.primary} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <AppText style={styles.addTitle}>Add Record</AppText>
+            <AppText style={styles.addSub}>Farmer, land and equipment / service details</AppText>
+          </View>
+          <Ionicons name="chevron-forward" size={22} color={colors.white} />
+        </Pressable>
       ) : null}
 
-      {isAdmin ? (
-        <AppButton title="New Survey" icon="add" onPress={startSurvey} style={{ marginTop: 18, marginBottom: 24 }} />
-      ) : (
-        <AppButton
-          title="Search Surveys"
-          icon="search"
-          onPress={() => router.push("/surveys")}
-          style={{ marginTop: 18, marginBottom: 24 }}
-        />
-      )}
+      <QuickSearch />
 
-      <SectionHeader title="Recent Surveys" action="View All" onAction={() => router.push("/surveys")} />
-      {recentCards.length === 0 && refreshing ? (
+      {isAdmin ? (
+        <View style={{ marginBottom: 20 }}>
+          <SectionHeader title="Admin" />
+          <View style={styles.tools}>
+            <Tool icon="stats-chart-outline" label="Reports" href="/admin/reports" />
+            <Tool icon="people-circle-outline" label="Users" href="/profile/users" />
+            <Tool icon="time-outline" label="Audit history" href="/admin/audit" />
+          </View>
+        </View>
+      ) : null}
+
+      {waiting > 0 ? (
+        <Pressable onPress={() => router.push("/profile/offline")} style={styles.syncNote} accessibilityRole="button">
+          <Ionicons name="cloud-upload-outline" size={18} color={colors.warning} />
+          <AppText variant="label" style={{ flex: 1 }}>
+            {waiting} older survey{waiting === 1 ? " is" : "s are"} still waiting to sync on this device.
+          </AppText>
+          <Ionicons name="chevron-forward" size={16} color={colors.muted} />
+        </Pressable>
+      ) : null}
+
+      <SectionHeader title="Recent records" action="View all" onAction={() => router.push("/records")} />
+      {recent.loading && !recent.data ? (
         <>
           <SurveyCardSkeleton />
           <SurveyCardSkeleton />
         </>
-      ) : recentCards.length === 0 ? (
-        <EmptyState
-          icon="clipboard-outline"
-          title="No surveys yet"
-          message={isAdmin ? "Surveys you add will appear here." : "Surveys added by admins will appear here."}
-          actionTitle={isAdmin ? "Add your first survey" : undefined}
-          onAction={isAdmin ? startSurvey : undefined}
-        />
+      ) : recent.error && !recent.data ? (
+        <ErrorState offline={recent.error.offline} message={recent.error.offline ? "Connect to the internet to see records." : recent.error.message} onRetry={recent.reload} />
+      ) : recent.data?.data.length ? (
+        <>
+          {recent.data.data.map((r) => (
+            <ServiceRecordCard key={r.id} record={r} onPress={() => router.push({ pathname: "/record/[id]", params: { id: r.id } })} />
+          ))}
+          {recent.data.pagination.total > recent.data.data.length ? (
+            <AppButton title={`View all ${recent.data.pagination.total} records`} variant="ghost" icon="list-outline" onPress={() => router.push("/records")} />
+          ) : null}
+        </>
       ) : (
-        recentCards.map(({ card, id }, i) => (
-          <Animated.View key={card.key} entering={FadeInDown.duration(300).delay(60 * i)}>
-            <SurveyCard compact data={card} onPress={() => router.push({ pathname: "/survey/[id]", params: { id } })} />
-          </Animated.View>
-        ))
+        <EmptyState
+          icon="receipt-outline"
+          title="No records yet"
+          message="Records you save will appear here, ready to print receipts."
+          actionTitle={canEdit ? "Add a record" : undefined}
+          onAction={canEdit ? () => router.push("/record/new") : undefined}
+        />
       )}
     </Screen>
   );
 }
 
+/** Search entry point: farmer name, survey number or sub-division. */
+function QuickSearch() {
+  const [q, setQ] = useState("");
+  const go = () => router.push({ pathname: "/records", params: q.trim() ? { q: q.trim() } : { focus: String(Date.now()) } });
+  return (
+    <View style={styles.quick}>
+      <AppText variant="heading">Search Records</AppText>
+      <AppText variant="small">Farmer name, survey no. (312) or with sub-division (312/4B)</AppText>
+      <View style={styles.quickInput}>
+        <Ionicons name="search" size={18} color={colors.muted} />
+        <TextInput
+          value={q}
+          onChangeText={setQ}
+          onSubmitEditing={go}
+          returnKeyType="search"
+          placeholder="Search records"
+          placeholderTextColor={colors.placeholder}
+          style={styles.quickText}
+          autoCorrect={false}
+          accessibilityLabel="Search records by farmer name, survey number or sub-division"
+        />
+        <AppButton title="Search" compact onPress={go} />
+      </View>
+    </View>
+  );
+}
+
+function Tool({ icon, label, href }: { icon: ComponentProps<typeof Ionicons>["name"]; label: string; href: Href }) {
+  return (
+    <Pressable onPress={() => router.push(href)} style={({ pressed }) => [styles.tool, pressed && { opacity: 0.85 }]} accessibilityRole="button" accessibilityLabel={label}>
+      <View style={styles.toolIcon}>
+        <Ionicons name={icon} size={22} color={colors.primary} />
+      </View>
+      <AppText variant="label" style={{ textAlign: "center" }} numberOfLines={2}>{label}</AppText>
+    </Pressable>
+  );
+}
+
 const styles = StyleSheet.create({
   header: { flexDirection: "row", alignItems: "center", gap: 12 },
-  grid: { gap: 12 },
-  gridRow: { flexDirection: "row", gap: 12 },
+  pills: { marginTop: 12, marginBottom: 16, flexDirection: "row", gap: 8, alignItems: "center", flexWrap: "wrap" },
   rolePill: { backgroundColor: colors.primarySoft, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 5 },
+  addCard: {
+    flexDirection: "row", alignItems: "center", gap: 14, backgroundColor: colors.primary, borderRadius: radius.lg,
+    padding: 16, minHeight: 84, marginBottom: 16, ...shadow.raised,
+  },
+  addIcon: { width: 52, height: 52, borderRadius: 26, backgroundColor: colors.white, alignItems: "center", justifyContent: "center" },
+  addTitle: { fontFamily: fonts.bold, fontSize: 19, color: colors.white },
+  addSub: { fontFamily: fonts.medium, fontSize: 13.5, color: "#D8F0E1", marginTop: 2 },
+  quick: { backgroundColor: colors.card, borderRadius: radius.lg, padding: 14, gap: 4, marginBottom: 20, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border, ...shadow.card },
+  quickInput: {
+    flexDirection: "row", alignItems: "center", gap: 8, marginTop: 8, paddingLeft: 12, paddingRight: 6, minHeight: 52,
+    borderRadius: radius.md, backgroundColor: colors.background, borderWidth: 1, borderColor: colors.border,
+  },
+  quickText: { flex: 1, fontFamily: fonts.regular, fontSize: 16, color: colors.text },
+  tools: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
+  tool: {
+    flexGrow: 1, flexBasis: "30%", minHeight: 92, backgroundColor: colors.card, borderRadius: radius.lg, padding: 10, alignItems: "center", justifyContent: "center", gap: 8,
+    borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border, ...shadow.card,
+  },
+  toolIcon: { width: 42, height: 42, borderRadius: 21, backgroundColor: colors.primarySoft, alignItems: "center", justifyContent: "center" },
+  syncNote: {
+    flexDirection: "row", alignItems: "center", gap: 8, padding: 12, borderRadius: radius.md, backgroundColor: colors.warningSoft, marginBottom: 16,
+  },
 });
