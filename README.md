@@ -70,6 +70,7 @@ This is enforced in three places. The UI hides actions and guards routes. The `s
 
 **Deploy:** `supabase db push` (applies 022), then `supabase functions deploy service-records export-data admin-users`.
 **Tests:** `deno test -A tests/service-records.test.ts` (11 end-to-end tests).
+**Demo records:** `supabase db query --linked -f supabase/demo/seed_demo_records.sql` adds 60 realistic records (last 60 days, "recorded by" the demo staff accounts). `remove_demo_records.sql` removes exactly those and their audit rows; real records are untouched.
 
 ---
 
